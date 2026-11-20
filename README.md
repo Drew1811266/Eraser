@@ -2,7 +2,7 @@
 
 Windows 桌面端视频去水印工具。基于既有 mac 项目 [Mac-Remover](https://github.com/Drew1811266/Mac-Remover) 的移植与重构。
 
-> 当前阶段：**架构规划完成，等待关键决策确认后进入 M0。**
+> 当前阶段：**架构规划完成，三项关键决策已确认（2026-11-20），可进入 M0 基线冻结。**
 
 ---
 
@@ -22,19 +22,22 @@ Windows 桌面端视频去水印工具。基于既有 mac 项目 [Mac-Remover](h
 | [02 · 目标架构](docs/02-target-architecture.md) | 新架构长什么样？模块怎么分？契约怎么定？ |
 | [03 · 迁移计划](docs/03-migration-plan.md) | 先做什么后做什么？每步怎么验收？多久能出可用版？ |
 | [04 · 风险登记](docs/04-risk-register.md) | 哪些坑会拖垮计划？怎么提前处置？ |
+| [05 · 黄金样本手册](docs/05-golden-set-runbook.md) | M0 具体怎么录基准？怎么判定"没变差"？ |
 | [ADR-0001 运行时策略](docs/adr/0001-runtime-strategy.md) | 为什么选 Electron + Python，而不是纯重写？ |
 | [ADR-0002 引擎契约](docs/adr/0002-engine-contract.md) | 为什么用 stdio 而不是本地 HTTP？ |
 | [ADR-0003 视频预览](docs/adr/0003-portable-preview.md) | mac 的原生播放器在 Windows 上怎么办？ |
 
 ---
 
-## 三个需要你先拍板的决策
+## 已确认的决策（2026-11-20）
 
-1. **运行时策略**：Electron + Python 引擎（推荐）/ pywebview 快速复用 / 纯 TS 重写。
-2. **首版范围**：Real-ESRGAN 是否必须内置？SeedVR2 是否允许延后？
-3. **目标机器**：仅 NVIDIA，还是要支持 AMD/Intel 核显？Win10 是否在范围内？
+| 决策 | 结论 | 影响 |
+|---|---|---|
+| 运行时策略 | **Electron 外壳 + Python 引擎**（stdio JSON-RPC） | 算法零重写；[ADR-0001](docs/adr/0001-runtime-strategy.md) 已生效 |
+| 首版超分范围 | **仅 Real-ESRGAN**；SeedVR2 不在 v1 范围 | M5 从 2–3 周收窄到 2 周，取消最大不确定性 |
+| 目标机器基线 | **仅 NVIDIA + Win10/11 x64** | 直上 CUDA，不引入 DirectML；AMD/Intel 回退 CPU |
 
-详见 [docs/03-migration-plan.md](docs/03-migration-plan.md) 与对话中的决策清单。
+这意味着：**M1–M4 没有分支了，可以线性推进。**
 
 ---
 
