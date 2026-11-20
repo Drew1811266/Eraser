@@ -36,7 +36,7 @@ Windows 桌面应用。功能对应关系、技术选择与取舍分别记录在
 | 文件 | 体积 | 说明 |
 |---|---|---|
 | `Eraser-Setup-0.1.0.exe` | 663 MB | CPU 版，任何 Win10/11 x64 |
-| `Eraser-Setup-GPU-0.1.0.exe` | 1440 MB | 含 CUDA 13 运行时（cuBLAS/cuDNN） |
+| `Eraser-Setup-GPU-0.1.0.exe` | 1439 MB | 含 CUDA 13 运行时（cuBLAS/cuDNN） |
 
 两个包的应用本体相同，GPU 包多一个 `resources/engine/cuda/` 目录。
 安装包内含 ffmpeg（GPL 构建，见 ADR-0004）与两个 ONNX 模型。

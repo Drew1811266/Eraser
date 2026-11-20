@@ -89,7 +89,7 @@ node scripts/e2e-desktop.mjs    # 真实 Electron 窗口点一遍（需要交互
 
 ```
 dist/installer/Eraser-Setup-0.1.0.exe        663 MB   CPU 版，任何机器
-dist/installer/Eraser-Setup-GPU-0.1.0.exe   1440 MB   带 CUDA，NVIDIA 机器快 7 倍
+dist/installer/Eraser-Setup-GPU-0.1.0.exe   1439 MB   带 CUDA，NVIDIA 机器快 7 倍
 ```
 
 双击安装即可，无需 Python / ffmpeg / CUDA 工具包。详见 [07 · 安装与验收](docs/07-install-and-verify.md)。

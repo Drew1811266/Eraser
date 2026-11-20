@@ -1,0 +1,19 @@
+# Build-time tools. None of these end up in the shipped application.
+#
+#   pip install -r requirements.txt -r requirements-build.txt
+
+# Freeze the engine into dist/eraser-engine (onedir).
+pyinstaller==6.22.3
+
+# Convert Real-ESRGAN's PyTorch checkpoint to ONNX (packaging/convert-esrgan.py).
+# `onnx` is what torch's exporter writes through; torch is deliberately CPU-only.
+# Both are needed once per model, not on the user's machine.
+torch==2.15.0
+onnx==1.23.2
+
+# GPU runtime DLLs for the frozen engine (staged into engine/cuda by
+# scripts/stage-dist.py, never imported by name). CUDA 13 layout: cublas and
+# cudart land in nvidia/cu13/bin/x86_64, cuDNN in nvidia/cudnn/bin.
+nvidia-cuda-runtime==13.5.37
+nvidia-cublas==13.10.0.20
+nvidia-cudnn-cu13==9.28.1.4

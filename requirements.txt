@@ -1,0 +1,14 @@
+# Runtime dependencies of the engine.
+#
+# Installed into `.venv`; PyInstaller freezes this exact set into
+# `dist/eraser-engine`, and the installer carries the result. Build-time tools
+# (torch, onnx, pyinstaller) live in requirements-build.txt and never ship.
+
+# Inference. The GPU wheel also runs on CPU; it is chosen so the GPU installer
+# is a different DLL folder rather than a different binary.
+onnxruntime-gpu==1.32.0
+
+# The pipeline itself: array maths, image IO, colour conversions.
+numpy==2.5.5
+opencv-python-headless==5.1.0.95
+pillow==13.0.0
