@@ -319,7 +319,7 @@ _CONTRACT_JSON = r"""
     {
       "name": "media.probe",
       "summary": "Read video metadata via ffprobe.",
-      "implemented": false,
+      "implemented": true,
       "params": {
         "type": "object",
         "additionalProperties": false,
@@ -377,7 +377,7 @@ _CONTRACT_JSON = r"""
     {
       "name": "process.start",
       "summary": "Start a watermark-removal run. Returns a task id immediately.",
-      "implemented": false,
+      "implemented": true,
       "params": {
         "type": "object",
         "additionalProperties": false,
@@ -418,7 +418,7 @@ _CONTRACT_JSON = r"""
     {
       "name": "process.cancel",
       "summary": "Request cooperative cancellation of a running task.",
-      "implemented": false,
+      "implemented": true,
       "params": {
         "type": "object",
         "additionalProperties": false,
@@ -446,7 +446,7 @@ _CONTRACT_JSON = r"""
     {
       "name": "process.status",
       "summary": "Snapshot a processing task.",
-      "implemented": false,
+      "implemented": true,
       "params": {
         "type": "object",
         "additionalProperties": false,
@@ -466,7 +466,7 @@ _CONTRACT_JSON = r"""
     {
       "name": "model.list",
       "summary": "List known models and their install state.",
-      "implemented": false,
+      "implemented": true,
       "params": {
         "type": "object",
         "additionalProperties": false,
@@ -541,7 +541,7 @@ _CONTRACT_JSON = r"""
     {
       "name": "assets.verify",
       "summary": "Check that required runtime assets (ffmpeg, models) are present.",
-      "implemented": false,
+      "implemented": true,
       "params": {
         "type": "object",
         "additionalProperties": false,

@@ -11,6 +11,8 @@ import shutil
 import subprocess
 from typing import Any
 
+from engine.platform import ort_runtime
+
 CPU_PROBE_TIMEOUT = 1.5
 
 
@@ -83,5 +85,17 @@ def _nvidia_devices(timeout: float) -> list[dict[str, Any]]:
 
 
 def detect_devices(timeout: float = CPU_PROBE_TIMEOUT) -> list[dict[str, Any]]:
-    """Return the devices the engine may use, most capable first."""
-    return [*_nvidia_devices(timeout), _cpu_device()]
+    """Return the devices the engine may use, most capable first.
+
+    `available` says whether the engine can actually run inference there.  A
+    machine can have a perfectly good GPU and still get `available: False`,
+    because ONNX Runtime also needs its CUDA provider DLLs and the cuBLAS/cuDNN
+    runtime; the UI shows the hardware either way but only promises speed when
+    this flag is true.
+    """
+    usable = ort_runtime.cuda_usable()
+    devices = _nvidia_devices(timeout)
+    for device in devices:
+        device["provider"] = "CUDAExecutionProvider"
+        device["available"] = usable
+    return [*devices, _cpu_device()]

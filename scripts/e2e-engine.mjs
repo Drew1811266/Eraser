@@ -140,7 +140,7 @@ async function main() {
 
   section('4. structured errors');
   try {
-    await client.request('media.probe', { path: 'x.mp4' });
+    await client.request('model.install', { model_id: 'lama_roi' });
     check('unimplemented method rejects', false, 'it resolved instead');
   } catch (error) {
     check('unimplemented method rejects', error instanceof EngineError);

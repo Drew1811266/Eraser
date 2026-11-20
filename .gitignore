@@ -61,3 +61,6 @@ logs/
 .DS_Store
 Thumbs.db
 desktop.config.local.*
+
+# downloaded assets and test scratch space
+.cache/

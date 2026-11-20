@@ -222,7 +222,13 @@ export const IMPLEMENTED_METHODS = [
   "system.ping",
   "system.capabilities",
   "system.shutdown",
+  "media.probe",
   "annotation.normalize",
+  "process.start",
+  "process.cancel",
+  "process.status",
+  "model.list",
+  "assets.verify",
 ] as const;
 
 // ---- errors ----

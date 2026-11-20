@@ -9,6 +9,7 @@ from engine import __version__
 from engine.generated.contract import IMPLEMENTED_METHODS
 from engine.platform import current_platform_key
 from engine.platform.device import detect_devices
+from engine.platform import ort_runtime
 from engine.rpc.server import RpcServer
 
 
@@ -19,6 +20,7 @@ def build_capabilities(server: RpcServer) -> dict[str, Any]:
         "platform": current_platform_key(),
         "methods": list(IMPLEMENTED_METHODS),
         "devices": detect_devices(),
+        "runtime": ort_runtime.summary(),
     }
 
 

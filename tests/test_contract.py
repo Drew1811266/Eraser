@@ -58,13 +58,25 @@ class ContractShapeTests(unittest.TestCase):
         self.assertTrue(set(IMPLEMENTED_METHODS) <= set(METHODS))
         self.assertGreater(len(IMPLEMENTED_METHODS), 0)
 
-    def test_m1_surface_is_exactly_what_is_live(self) -> None:
-        # Pins the M1 milestone: anything else becoming live must be a deliberate
-        # contract edit, not an accident.
+    def test_live_surface_matches_the_delivered_engine(self) -> None:
+        # Pins which methods are actually wired. Changing this set must be a
+        # deliberate contract edit paired with a real handler, not a accident.
         self.assertEqual(
             set(IMPLEMENTED_METHODS),
-            {"system.ping", "system.capabilities", "system.shutdown", "annotation.normalize"},
+            {
+                "system.ping",
+                "system.capabilities",
+                "system.shutdown",
+                "media.probe",
+                "annotation.normalize",
+                "process.start",
+                "process.cancel",
+                "process.status",
+                "model.list",
+                "assets.verify",
+            },
         )
+        self.assertLess(set(IMPLEMENTED_METHODS), set(METHODS), "some methods must remain stubbed")
 
 
 class ErrorCodeTests(unittest.TestCase):

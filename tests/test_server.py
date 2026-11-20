@@ -69,7 +69,7 @@ class ErrorTests(unittest.TestCase):
         self.assert_error(frames[0], "INVALID_PARAMS")
 
     def test_declared_but_unimplemented_method_is_structured(self) -> None:
-        frames = run_frames([request(1, "media.probe", {"path": "a.mp4"})])
+        frames = run_frames([request(1, "model.install", {"model_id": "lama_roi"})])
         self.assert_error(frames[0], "NOT_IMPLEMENTED")
         self.assertFalse(frames[0]["error"]["data"]["retryable"])
 
