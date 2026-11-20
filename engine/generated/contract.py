@@ -211,6 +211,12 @@ _CONTRACT_JSON = r"""
         },
         "memory_mb": {
           "type": "number"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "available": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -241,6 +247,9 @@ _CONTRACT_JSON = r"""
           "items": {
             "$ref": "#/types/DeviceInfo"
           }
+        },
+        "runtime": {
+          "$ref": "#/types/RuntimeInfo"
         }
       },
       "required": [
@@ -248,7 +257,33 @@ _CONTRACT_JSON = r"""
         "python_version",
         "platform",
         "methods",
-        "devices"
+        "devices",
+        "runtime"
+      ]
+    },
+    "RuntimeInfo": {
+      "type": "object",
+      "properties": {
+        "available_providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cuda_usable": {
+          "type": "boolean"
+        },
+        "onnxruntime": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "available_providers",
+        "cuda_usable",
+        "onnxruntime"
       ]
     }
   },

@@ -130,8 +130,8 @@ M3 在 M2.10 之后才能接真能力；但 M3.1 骨架可与 M2 并行。
 | 里程碑 | 状态 | 备注 |
 |---|---|---|
 | M1 契约与骨架 | ✅ 完成 | 72 单测 + 31 端到端检查 |
-| M2 引擎 Windows 化 | 🔄 进行中 | 本阶段 |
-| M3 外壳 | ⬜ | |
+| M2 引擎 Windows 化 | ✅ 完成 | 真实管线跑通；CUDA 47ms/帧，CPU 657ms/帧；23 项视频检查 |
+| M3 外壳 | ✅ 完成 | Electron 主进程 + preload 桥 + React UI；20 项界面单测；真机脚本待桌面会话 |
 | M4 资产分发 | ⬜ | |
 | M5 超分 | ⬜ | |
 | M6 发布 | ⬜ | |
@@ -145,7 +145,9 @@ M3 在 M2.10 之后才能接真能力；但 M3.1 骨架可与 M2 并行。
 | Python | 3.13.15，pip 可达 PyPI |
 | Node | 24.21.0，npm 11.19.0，registry 可达（electron 45.4.1） |
 | 磁盘 | D: 剩余 440GB |
-| GPU | RTX 5090 D v2（24455MB，nvidia-smi 可探测） |
-| ffmpeg | **未安装**（需自备，M2.1 处理） |
+| GPU | RTX 5090 D v2（24455MB，驱动 610.88，CUDA 13.3） |
+| GPU 推理 | onnxruntime-gpu 1.32 + `nvidia-*` CUDA 13 运行时；LaMa 512×512：CUDA 47ms/帧 vs CPU(8 线程) 657ms/帧 |
+| ffmpeg | `vendor/ffmpeg/win32-x86_64`（BtbN **gpl** 构建，见 ADR-0004） |
+| Electron | 45.4.1 已安装；**本会话沙箱内无法启动 GUI**（`--no-sandbox` 仍 0xC0000005），故 `e2e-desktop.mjs` 需在交互式桌面执行 |
 | 模型 | 仓库内 `best.ckpt` 仅为 LFS 指针，**权重不在仓库**；改用 HuggingFace ONNX |
 | 注意 | `timeout <cmd>` 无法执行 Windows `.cmd`（npm），会返回 126 —— 排查时勿被误导 |

@@ -64,6 +64,8 @@ export interface DeviceInfo {
   kind: string;
   name: string;
   memory_mb?: number;
+  provider?: string;
+  available?: boolean;
 }
 
 export interface Capabilities {
@@ -72,6 +74,13 @@ export interface Capabilities {
   platform: string;
   methods: string[];
   devices: DeviceInfo[];
+  runtime: RuntimeInfo;
+}
+
+export interface RuntimeInfo {
+  available_providers: string[];
+  cuda_usable: boolean;
+  onnxruntime: string | null;
 }
 
 // ---- method params / results ----

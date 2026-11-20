@@ -26,9 +26,9 @@ elif [ -z "${PYTHON:-}" ] && [ -x ".venv/bin/python" ]; then
 fi
 export ERASER_PYTHON="$PY"
 
-STEPS=3
+STEPS=4
 if [ "$FULL" = "1" ]; then
-  STEPS=4
+  STEPS=5
 fi
 
 echo "== [1/$STEPS] contract artifacts are in sync =="
@@ -42,9 +42,13 @@ echo
 echo "== [3/$STEPS] engine <-> shell end-to-end =="
 node scripts/e2e-engine.mjs
 
+echo
+echo "== [4/$STEPS] shell typecheck + UI tests =="
+npm --prefix desktop run check
+
 if [ "$FULL" = "1" ]; then
   echo
-  echo "== [4/$STEPS] real video through the pipeline =="
+  echo "== [5/$STEPS] real video through the pipeline =="
   "$PY" scripts/e2e-video.py
 fi
 

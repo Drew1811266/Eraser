@@ -238,11 +238,21 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--keep", action="store_true", help="keep the work directory")
     parser.add_argument("--python", default=str(ROOT / ".venv" / "Scripts" / "python.exe"))
+    parser.add_argument("--fixture-only", action="store_true",
+                        help="only build the synthetic clip, then exit (used by other tests)")
+    parser.add_argument("--fixture", default=None, help="where to write the fixture")
     args = parser.parse_args()
 
     if not FFMPEG.is_file():
         print(f"ffmpeg not found at {FFMPEG}")
         return 2
+
+    if args.fixture_only:
+        target = Path(args.fixture) if args.fixture else ROOT / ".cache" / "fixture.mp4"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        make_fixture(target)
+        print(target)
+        return 0
 
     workdir = (ROOT / ".cache" / "e2e-video").resolve()
     shutil.rmtree(workdir, ignore_errors=True)

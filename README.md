@@ -2,7 +2,7 @@
 
 Windows 桌面端视频去水印工具。基于既有 mac 项目 [Mac-Remover](https://github.com/Drew1811266/Mac-Remover) 的移植与重构。
 
-> 当前阶段：**架构规划完成，三项关键决策已确认（2026-11-20），可进入 M0 基线冻结。**
+> 当前阶段：**M2（引擎 Windows 化）与 M3（桌面外壳）已完成，可在 Windows 上跑通「打开视频 → 框选 → 擦除 → 出片」全流程。**
 
 ---
 
@@ -26,6 +26,8 @@ Windows 桌面端视频去水印工具。基于既有 mac 项目 [Mac-Remover](h
 | [ADR-0001 运行时策略](docs/adr/0001-runtime-strategy.md) | 为什么选 Electron + Python，而不是纯重写？ |
 | [ADR-0002 引擎契约](docs/adr/0002-engine-contract.md) | 为什么用 stdio 而不是本地 HTTP？ |
 | [ADR-0003 视频预览](docs/adr/0003-portable-preview.md) | mac 的原生播放器在 Windows 上怎么办？ |
+| [ADR-0004 ffmpeg 发行版](docs/adr/0004-ffmpeg-distribution.md) | 为什么要用 GPL 构建，而不是更干净的 LGPL？ |
+| [06 · 执行计划](docs/06-execution-plan.md) | M2–M6 的任务表、验收门槛与逐项进度 |
 
 ---
 
@@ -52,22 +54,51 @@ Windows 桌面端视频去水印工具。基于既有 mac 项目 [Mac-Remover](h
 ## 仓库状态
 
 ```
-docs/        ✅ 架构文档（7 篇）
+docs/        ✅ 架构文档（6 篇 + 4 个 ADR）
 contract/    ✅ 契约 v1（12 方法）+ 代码生成器
-engine/      ✅ Python 引擎（M1 部分：RPC 骨架 + 4 个可用方法）
-desktop/     🟡 EngineClient 已实现并通过 E2E；Electron 外壳待装依赖后接线
+engine/      ✅ Python 引擎：RPC + 平台层 + 移植后的 LaMa 管线（10 个方法可用）
+desktop/     ✅ Electron 外壳：主进程、preload 桥、React UI
 golden/      ⬜ 黄金样本（M0，需在 mac 上执行）
-tests/       ✅ 72 个单元测试 + 31 项端到端检查
+tests/       ✅ 99 个引擎单测 + 20 个界面单测 + 31 项协议检查 + 23 项视频检查
 ```
 
 ## 如何验证
 
 ```bash
-bash scripts/check.sh
+bash scripts/check.sh           # 快速门禁（约 15 秒）
+bash scripts/check.sh --full    # 追加一次真实视频处理（约 30 秒）
+node scripts/e2e-desktop.mjs    # 真实 Electron 窗口点一遍（需要交互式桌面）
 ```
 
-依次执行：契约产物一致性 → 引擎单元测试 → 引擎与外壳的端到端契约检查。
-三项全绿才算一个里程碑完成。当前输出：**72 tests OK / 31 checks passed**。
+快速门禁依次执行：契约产物一致性 → 引擎单测 → 引擎与外壳的协议端到端 → 外壳类型检查与界面单测。
+`--full` 再加一项：用合成视频（已知水印位置的渐变画面）跑完整管线，逐帧核对水印区域已改变、
+水印颜色已消失、遮罩外像素未被破坏、分辨率/帧率/帧数未变。
+
+当前输出：**99 tests OK / 31 checks / 20 UI tests / 23 video checks**。
+
+> `e2e-desktop.mjs` 会真的开一个 Electron 窗口、点「打开视频」、跑完一整段并读回结果。
+> 它需要交互式桌面会话；在无桌面的 CI 里 Electron 无法启动（见 `docs/06` 的环境事实）。
+
+## 怎么用
+
+### 桌面应用
+
+```bash
+cd desktop
+npm install
+npm run build
+npm start
+```
+
+### 命令行（不开 UI 也能出片）
+
+```bash
+.venv/Scripts/python.exe -m engine.cli info
+.venv/Scripts/python.exe -m engine.cli probe "D:/videos/clip.mp4"
+.venv/Scripts/python.exe -m engine.cli process "D:/videos/clip.mp4" --rect 480,20,120,60
+```
+
+`--rect` 是 `x,y,宽,高`（视频像素），`--frames 0:239` 可只处理一段，`--output` 指定输出文件。
 
 ## 当前可用的引擎方法
 
@@ -75,7 +106,9 @@ bash scripts/check.sh
 |---|---|
 | `system.ping` / `system.capabilities` / `system.shutdown` | ✅ 已实现 |
 | `annotation.normalize` | ✅ 已实现（与参考实现逐条对齐） |
-| `media.probe` / `process.*` / `model.*` / `assets.verify` | ⬜ 契约已声明，返回结构化 `NOT_IMPLEMENTED` |
+| `media.probe` / `process.start` / `process.cancel` / `process.status` | ✅ 已实现（真实推理 + 进度通知 + 协作式取消） |
+| `model.list` / `assets.verify` | ✅ 已实现 |
+| `model.install` / `model.installStatus` | ⬜ 契约已声明，返回结构化 `NOT_IMPLEMENTED` |
 
 > 声明了但未实现的方法会明确返回 `NOT_IMPLEMENTED` 而不是消失——这样 UI 永远知道"有哪些能力存在、哪些还没到"。这是对原仓库"静默 blocked"的直接修正。
 
