@@ -28,6 +28,8 @@ Windows 桌面端视频去水印工具。基于既有 mac 项目 [Mac-Remover](h
 | [ADR-0003 视频预览](docs/adr/0003-portable-preview.md) | mac 的原生播放器在 Windows 上怎么办？ |
 | [ADR-0004 ffmpeg 发行版](docs/adr/0004-ffmpeg-distribution.md) | 为什么要用 GPL 构建，而不是更干净的 LGPL？ |
 | [06 · 执行计划](docs/06-execution-plan.md) | M2–M6 的任务表、验收门槛与逐项进度 |
+| [07 · 安装与验收](docs/07-install-and-verify.md) | 装哪个包、怎么装、怎么确认它真的在用 GPU |
+| [ADR-0005 打包与 GPU](docs/adr/0005-packaging-and-gpu.md) | 为什么是 onedir，为什么出两个安装包 |
 
 ---
 
@@ -81,7 +83,16 @@ node scripts/e2e-desktop.mjs    # 真实 Electron 窗口点一遍（需要交互
 
 ## 怎么用
 
-### 桌面应用
+### 直接装（发布物）
+
+```
+dist/installer/Eraser-Setup-0.1.0.exe        601 MB   CPU 版，任何机器
+dist/installer/Eraser-Setup-GPU-0.1.0.exe   1378 MB   带 CUDA，NVIDIA 机器快 7 倍
+```
+
+双击安装即可，无需 Python / ffmpeg / CUDA 工具包。详见 [07 · 安装与验收](docs/07-install-and-verify.md)。
+
+### 从源码跑桌面应用
 
 ```bash
 cd desktop

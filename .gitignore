@@ -30,6 +30,7 @@ build/
 dist/
 out/
 *.spec
+!packaging/*.spec
 *.exe
 *.msi
 *.nupkg

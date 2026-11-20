@@ -132,7 +132,7 @@ M3 在 M2.10 之后才能接真能力；但 M3.1 骨架可与 M2 并行。
 | M1 契约与骨架 | ✅ 完成 | 72 单测 + 31 端到端检查 |
 | M2 引擎 Windows 化 | ✅ 完成 | 真实管线跑通；CUDA 47ms/帧，CPU 657ms/帧；23 项视频检查 |
 | M3 外壳 | ✅ 完成 | Electron 主进程 + preload 桥 + React UI；20 项界面单测；真机脚本待桌面会话 |
-| M4 资产分发 | ⬜ | |
+| M4 资产分发 | ✅ 完成 | PyInstaller onedir + NSIS；CPU 601MB / GPU 1378MB 双包，见 ADR-0005 |
 | M5 超分 | ⬜ | |
 | M6 发布 | ⬜ | |
 

@@ -12,7 +12,8 @@
     "start": "electron .",
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run test",
+    "dist": "npm run build && electron-builder --win --x64"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.2",
@@ -22,6 +23,7 @@
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^5.1.2",
     "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
     "jsdom": "^31.0.1",
     "typescript": "^5.6.3",
     "vite": "^7.2.7",
@@ -30,5 +32,47 @@
   "dependencies": {
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
+  },
+  "build": {
+    "appId": "com.eraser.desktop",
+    "productName": "Eraser",
+    "directories": {
+      "output": "../dist/installer",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "dist-renderer/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "../dist/Eraser/engine",
+        "to": "engine"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Eraser-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Eraser",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    }
   }
 }

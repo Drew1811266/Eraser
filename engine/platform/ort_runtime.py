@@ -25,6 +25,8 @@ from typing import Any
 _lock = threading.RLock()
 _preloaded = False
 _cuda_usable: bool | None = None
+# `os.add_dll_directory` hands back a handle that must outlive the call.
+_dll_handles: list[Any] = []
 
 
 def _import_ort() -> Any | None:
@@ -33,6 +35,24 @@ def _import_ort() -> Any | None:
     except ImportError:
         return None
     return ort
+
+
+def bundled_cuda_dir() -> Path | None:
+    """The CUDA runtime shipped beside a frozen engine, if there is one.
+
+    PyInstaller cannot carry the `nvidia/*/bin` DLLs usefully: they are loaded
+    by name at runtime, not at import time. The installer therefore drops them
+    into `<install>/cuda` and this is where they are picked up.
+    """
+    import sys
+
+    if not getattr(sys, "frozen", False):
+        return None
+    root = Path(sys.executable).resolve().parent
+    for candidate in (root / "cuda", root / "_internal" / "cuda"):
+        if candidate.is_dir() and any(candidate.glob("*.dll")):
+            return candidate
+    return None
 
 
 def available_providers() -> list[str]:
@@ -60,6 +80,14 @@ def preload_cuda_dlls() -> list[str]:
         if _preloaded:
             return []
         _preloaded = True
+
+        bundled = bundled_cuda_dir()
+        if bundled is not None:
+            # Frozen layout: every CUDA DLL sits in one folder next to the exe.
+            if os.name == "nt" and hasattr(os, "add_dll_directory"):
+                _dll_handles.append(os.add_dll_directory(str(bundled)))
+            os.environ["PATH"] = f"{bundled}{os.pathsep}{os.environ.get('PATH', '')}"
+            return []
 
         ort = _import_ort()
         if ort is None:
