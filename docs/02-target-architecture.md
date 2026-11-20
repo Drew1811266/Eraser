@@ -119,14 +119,14 @@ stdio 的代价是需要自己实现「请求-响应-事件」三路复用，但
 ### 平台键统一规范（唯一权威）
 
 ```
-win32-x64      ← macOS/MacIntel 之外的新增
+win32-x86_64   ← Windows x64（与本仓库 Electron 侧 getRuntimePlatformKey 一致）
 win32-arm64    （预留）
 darwin-arm64
 darwin-x86_64
 linux-x86_64
 ```
 
-Electron 侧 `getRuntimePlatformKey()` 已经采用这套命名，**Python 侧必须对齐它**，而不是相反。同时修正 `nativeCore.ts` 忽略 arch 的缺陷。
+Electron 侧 `getRuntimePlatformKey()` 已经采用这套命名（注意是 `win32-x86_64`，不是 `win32-x64`），**Python 侧必须对齐它**，而不是相反。同时修正 `nativeCore.ts` 忽略 arch 的缺陷。
 
 ---
 

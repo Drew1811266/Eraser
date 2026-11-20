@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "notes": "jsonrpc codes follow the spec; app codes ride in error.data.code so the UI can map to i18n keys.",
+  "codes": [
+    { "code": "PARSE_ERROR", "jsonrpc": -32700, "retryable": false, "message_key": "err.parse" },
+    { "code": "INVALID_REQUEST", "jsonrpc": -32600, "retryable": false, "message_key": "err.invalid_request" },
+    { "code": "METHOD_NOT_FOUND", "jsonrpc": -32601, "retryable": false, "message_key": "err.method_not_found" },
+    { "code": "INVALID_PARAMS", "jsonrpc": -32602, "retryable": false, "message_key": "err.invalid_params" },
+    { "code": "INTERNAL_ERROR", "jsonrpc": -32603, "retryable": true, "message_key": "err.internal" },
+    { "code": "NOT_IMPLEMENTED", "jsonrpc": -32001, "retryable": false, "message_key": "err.not_implemented" },
+    { "code": "TASK_NOT_FOUND", "jsonrpc": -32002, "retryable": false, "message_key": "err.task_not_found" },
+    { "code": "MODEL_MISSING", "jsonrpc": -32003, "retryable": true, "message_key": "err.model_missing" },
+    { "code": "FFMPEG_MISSING", "jsonrpc": -32004, "retryable": false, "message_key": "err.ffmpeg_missing" },
+    { "code": "CANCELLED", "jsonrpc": -32005, "retryable": true, "message_key": "err.cancelled" }
+  ]
+}

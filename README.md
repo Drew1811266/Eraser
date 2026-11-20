@@ -52,11 +52,31 @@ Windows 桌面端视频去水印工具。基于既有 mac 项目 [Mac-Remover](h
 ## 仓库状态
 
 ```
-docs/        ✅ 架构文档（已完成）
-contract/    ⬜ 契约层（M1）
-desktop/     ⬜ Electron + React（M1/M3）
-engine/      ⬜ Python 引擎（M1/M2）
-golden/      ⬜ 黄金样本（M0，最优先）
+docs/        ✅ 架构文档（7 篇）
+contract/    ✅ 契约 v1（12 方法）+ 代码生成器
+engine/      ✅ Python 引擎（M1 部分：RPC 骨架 + 4 个可用方法）
+desktop/     🟡 EngineClient 已实现并通过 E2E；Electron 外壳待装依赖后接线
+golden/      ⬜ 黄金样本（M0，需在 mac 上执行）
+tests/       ✅ 72 个单元测试 + 31 项端到端检查
 ```
+
+## 如何验证
+
+```bash
+bash scripts/check.sh
+```
+
+依次执行：契约产物一致性 → 引擎单元测试 → 引擎与外壳的端到端契约检查。
+三项全绿才算一个里程碑完成。当前输出：**72 tests OK / 31 checks passed**。
+
+## 当前可用的引擎方法
+
+| 方法 | 状态 |
+|---|---|
+| `system.ping` / `system.capabilities` / `system.shutdown` | ✅ 已实现 |
+| `annotation.normalize` | ✅ 已实现（与参考实现逐条对齐） |
+| `media.probe` / `process.*` / `model.*` / `assets.verify` | ⬜ 契约已声明，返回结构化 `NOT_IMPLEMENTED` |
+
+> 声明了但未实现的方法会明确返回 `NOT_IMPLEMENTED` 而不是消失——这样 UI 永远知道"有哪些能力存在、哪些还没到"。这是对原仓库"静默 blocked"的直接修正。
 
 `.reference/` 保存了参考仓库的关键源码快照，仅本地保留，不进入版本库。

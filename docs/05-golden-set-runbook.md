@@ -100,7 +100,7 @@ python scripts/compare-video.py \
 退出码 `0` 表示通过，`1` 表示低于阈值——可直接接进 CI 作为门禁。
 
 > 依赖 ffmpeg。若本机没有，指向应用内置的那一份：
-> `--ffmpeg "D:/path/to/vendor/ffmpeg/win32-x64/ffmpeg.exe"`
+> `--ffmpeg "D:/path/to/vendor/ffmpeg/win32-x86_64/ffmpeg.exe"`
 
 ---
 

@@ -67,3 +67,19 @@
 - 需要实现并测试一层 RPC server（约 200 行 Python + 150 行 TS），以及一套"双端共享的测试向量"。
 - 调试体验依赖日志：必须提供 `--rpc-trace` 开关，把协议帧写入单独的 trace 文件。
 - 为未来替换引擎留出空间：任何语言实现的引擎，只要满足契约即可上线。
+
+---
+
+## 落地记录（M1，2026-11-20）
+
+实现过程中确定了几条本 ADR 未覆盖的细则，记录下来避免后续反复：
+
+1. **`ready` 是首帧，不是可选项。** 引擎在注册完所有方法后立即推送 `ready` + capabilities；外壳的 `start()` 只有收到它才返回。这样"缺少解释器 / 模块导入失败"会在启动时暴露，而不是变形为第一次调用时的神秘超时。
+
+2. **RPC 校验比 sidecar 读取更严格，这是有意的。** sidecar（`.wmr.json`）是用户可手改的文件，必须容忍并就地修复；RPC 参数来自我们自己的 UI，形状不对说明是外壳的 bug，应当立即报错。因此 `annotation.normalize` 的 RPC 入口会拒绝畸形 segment，而引擎内部的 `normalize_segments()` 仍保留"丢弃非法项"的旧行为供文件读取使用。
+
+3. **空 params 在 TS 生成物里是 `Record<string, never>` 而不是 `interface {}`。** 后者在 TypeScript 中接受任意对象，等于没有约束。
+
+4. **平台键固定为 `win32-x86_64`**（与 Electron 侧 `getRuntimePlatformKey` 逐字一致），不是 `win32-x64`。这是参考仓库内置 ffmpeg 在 Windows 上找不到的直接原因，已由 `engine/platform/__init__.py` 与单元测试锁定。
+
+5. **stdout 纯净性有专门的对抗测试**：注入 2000 行 stderr 噪音后，协议仍必须完整可解析。这条测试在 M1 已通过。
