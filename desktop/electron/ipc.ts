@@ -3,7 +3,7 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { EngineError } from './services/engineClient';
 import { EngineHost } from './services/engineHost';
-import { IPC, type PickResult, type StartRequest } from '../shared/ipc';
+import { IPC, type PickResult, type StartRequest, type UpscaleRequest } from '../shared/ipc';
 
 const VIDEO_FILTERS = [
   { name: '视频', extensions: ['mp4', 'mov', 'mkv', 'avi', 'webm', 'flv', 'wmv'] },
@@ -71,6 +71,14 @@ export function registerIpc(host: EngineHost): void {
   ipcMain.handle(IPC.start, async (_event, request: StartRequest) => {
     try {
       return await host.request('process.start', request as unknown as Record<string, unknown>);
+    } catch (error) {
+      rethrow(error);
+    }
+  });
+
+  ipcMain.handle(IPC.upscale, async (_event, request: UpscaleRequest) => {
+    try {
+      return await host.request('upscale.start', request as unknown as Record<string, unknown>);
     } catch (error) {
       rethrow(error);
     }

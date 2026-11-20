@@ -72,6 +72,7 @@ class ContractShapeTests(unittest.TestCase):
                 "process.start",
                 "process.cancel",
                 "process.status",
+                "upscale.start",
                 "model.list",
                 "assets.verify",
             },

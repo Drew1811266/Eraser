@@ -29,7 +29,9 @@ Windows 桌面端视频去水印工具。基于既有 mac 项目 [Mac-Remover](h
 | [ADR-0004 ffmpeg 发行版](docs/adr/0004-ffmpeg-distribution.md) | 为什么要用 GPL 构建，而不是更干净的 LGPL？ |
 | [06 · 执行计划](docs/06-execution-plan.md) | M2–M6 的任务表、验收门槛与逐项进度 |
 | [07 · 安装与验收](docs/07-install-and-verify.md) | 装哪个包、怎么装、怎么确认它真的在用 GPU |
+| [变更记录](CHANGELOG.md) | 这个版本有什么、验证到什么程度、哪些没做 |
 | [ADR-0005 打包与 GPU](docs/adr/0005-packaging-and-gpu.md) | 为什么是 onedir，为什么出两个安装包 |
+| [ADR-0006 超分走 ONNX](docs/adr/0006-realesrgan-via-onnx.md) | 为什么不复刻参考实现的 torch 运行时 |
 
 ---
 
@@ -76,7 +78,7 @@ node scripts/e2e-desktop.mjs    # 真实 Electron 窗口点一遍（需要交互
 `--full` 再加一项：用合成视频（已知水印位置的渐变画面）跑完整管线，逐帧核对水印区域已改变、
 水印颜色已消失、遮罩外像素未被破坏、分辨率/帧率/帧数未变。
 
-当前输出：**99 tests OK / 31 checks / 20 UI tests / 23 video checks**。
+当前输出：**106 tests OK / 31 checks / 20 UI tests / 23 video checks / 5 upscale checks**。
 
 > `e2e-desktop.mjs` 会真的开一个 Electron 窗口、点「打开视频」、跑完一整段并读回结果。
 > 它需要交互式桌面会话；在无桌面的 CI 里 Electron 无法启动（见 `docs/06` 的环境事实）。
@@ -86,8 +88,8 @@ node scripts/e2e-desktop.mjs    # 真实 Electron 窗口点一遍（需要交互
 ### 直接装（发布物）
 
 ```
-dist/installer/Eraser-Setup-0.1.0.exe        601 MB   CPU 版，任何机器
-dist/installer/Eraser-Setup-GPU-0.1.0.exe   1378 MB   带 CUDA，NVIDIA 机器快 7 倍
+dist/installer/Eraser-Setup-0.1.0.exe        663 MB   CPU 版，任何机器
+dist/installer/Eraser-Setup-GPU-0.1.0.exe   1440 MB   带 CUDA，NVIDIA 机器快 7 倍
 ```
 
 双击安装即可，无需 Python / ffmpeg / CUDA 工具包。详见 [07 · 安装与验收](docs/07-install-and-verify.md)。
@@ -118,7 +120,8 @@ npm start
 | `system.ping` / `system.capabilities` / `system.shutdown` | ✅ 已实现 |
 | `annotation.normalize` | ✅ 已实现（与参考实现逐条对齐） |
 | `media.probe` / `process.start` / `process.cancel` / `process.status` | ✅ 已实现（真实推理 + 进度通知 + 协作式取消） |
-| `model.list` / `assets.verify` | ✅ 已实现 |
+| `model.list` / `assets.verify` | ✅ 已实现（含 Real-ESRGAN） |
+| `upscale.start` | ✅ 已实现（Real-ESRGAN，2×/4×，复用任务生命周期） |
 | `model.install` / `model.installStatus` | ⬜ 契约已声明，返回结构化 `NOT_IMPLEMENTED` |
 
 > 声明了但未实现的方法会明确返回 `NOT_IMPLEMENTED` 而不是消失——这样 UI 永远知道"有哪些能力存在、哪些还没到"。这是对原仓库"静默 blocked"的直接修正。

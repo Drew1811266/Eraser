@@ -150,6 +150,18 @@ export interface ProcessStatusParams {
 
 export type ProcessStatusResult = TaskStatus;
 
+/** Upscale a video 2x or 4x with Real-ESRGAN. Returns a task id; progress is streamed and the task is inspected through process.status / process.cancel. */
+export interface UpscaleStartParams {
+  input_path: string;
+  output_dir?: string;
+  scale?: number;
+  model_id?: string;
+}
+
+export interface UpscaleStartResult {
+  task_id: string;
+}
+
 /** List known models and their install state. */
 export type ModelListParams = Record<string, never>;
 
@@ -192,6 +204,7 @@ export type MethodName =
   | "process.start"
   | "process.cancel"
   | "process.status"
+  | "upscale.start"
   | "model.list"
   | "model.install"
   | "model.installStatus"
@@ -206,6 +219,7 @@ export interface MethodParams {
   "process.start": ProcessStartParams;
   "process.cancel": ProcessCancelParams;
   "process.status": ProcessStatusParams;
+  "upscale.start": UpscaleStartParams;
   "model.list": ModelListParams;
   "model.install": ModelInstallParams;
   "model.installStatus": ModelInstallStatusParams;
@@ -221,6 +235,7 @@ export interface MethodResults {
   "process.start": ProcessStartResult;
   "process.cancel": ProcessCancelResult;
   "process.status": ProcessStatusResult;
+  "upscale.start": UpscaleStartResult;
   "model.list": ModelListResult;
   "model.install": ModelInstallResult;
   "model.installStatus": ModelInstallStatusResult;
@@ -236,6 +251,7 @@ export const IMPLEMENTED_METHODS = [
   "process.start",
   "process.cancel",
   "process.status",
+  "upscale.start",
   "model.list",
   "assets.verify",
 ] as const;

@@ -28,7 +28,7 @@ export ERASER_PYTHON="$PY"
 
 STEPS=4
 if [ "$FULL" = "1" ]; then
-  STEPS=5
+  STEPS=6
 fi
 
 echo "== [1/$STEPS] contract artifacts are in sync =="
@@ -50,6 +50,10 @@ if [ "$FULL" = "1" ]; then
   echo
   echo "== [5/$STEPS] real video through the pipeline =="
   "$PY" scripts/e2e-video.py
+
+  echo
+  echo "== [6/$STEPS] Real-ESRGAN upscale =="
+  "$PY" scripts/e2e-upscale.py
 fi
 
 echo

@@ -40,6 +40,10 @@ FFMPEG_MEMBERS = {
 }
 
 MODEL_PATH = ROOT / "models" / "big-lama" / "1.0.0" / "big-lama.onnx"
+ESRGAN_PATH = ROOT / "models" / "real-esrgan" / "1.0.0" / "real-esrgan-x4plus.onnx"
+# Produced by packaging/convert-esrgan.py from RealESRGAN_x4plus.pth; there is no
+# upstream ONNX release to download, so this pin is the reproducibility anchor.
+ESRGAN_SHA256 = "8d16f80419ac8eac78077a575811fb46f838850057dd444931a8c4ac805a0ce8"
 MODEL_URLS = [
     "https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx",
 ]
@@ -148,6 +152,26 @@ def fetch_model(force: bool, check_only: bool) -> bool:
     return False
 
 
+def check_esrgan(check_only: bool) -> bool:
+    if ESRGAN_PATH.is_file():
+        digest = sha256(ESRGAN_PATH)
+        size = human(ESRGAN_PATH.stat().st_size)
+        if digest == ESRGAN_SHA256:
+            print(f"  ok   {ESRGAN_PATH.relative_to(ROOT)}  ({size})")
+            return True
+        print(f"  DRIFT {ESRGAN_PATH.relative_to(ROOT)}")
+        print(f"        expected {ESRGAN_SHA256}")
+        print(f"        actual   {digest}")
+        return False
+
+    print(f"  missing {ESRGAN_PATH.relative_to(ROOT)}")
+    print("          regenerate it (torch is a build-time dependency only):")
+    print("            pip install torch --index-url https://download.pytorch.org/whl/cpu")
+    print("            python packaging/convert-esrgan.py \\")
+    print("                --weights RealESRGAN_x4plus.pth --out models/real-esrgan/1.0.0/real-esrgan-x4plus.onnx")
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true", help="verify only, never download")
@@ -161,7 +185,11 @@ def main() -> int:
     model_ok = fetch_model(args.force, args.check)
 
     print()
-    if ffmpeg_ok and model_ok:
+    print("Real-ESRGAN ONNX model:")
+    esrgan_ok = check_esrgan(args.check)
+
+    print()
+    if ffmpeg_ok and model_ok and esrgan_ok:
         print("assets ready")
         return 0
     print("assets incomplete")

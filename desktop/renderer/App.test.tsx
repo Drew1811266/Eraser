@@ -13,7 +13,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import type { ProbeResult, StartRequest, TaskStatus } from '../shared/ipc';
+import type { ProbeResult, StartRequest, TaskStatus, UpscaleRequest } from '../shared/ipc';
 
 const PROBE: ProbeResult = {
   path: 'C:/videos/clip.mp4',
@@ -58,6 +58,7 @@ function createBridge() {
     pickOutputDir: vi.fn(async () => ({ canceled: true })),
     probe: vi.fn(async () => PROBE),
     start: vi.fn(async (_request: StartRequest) => ({ task_id: 'task-1' })),
+    upscale: vi.fn(async (_request: UpscaleRequest) => ({ task_id: 'task-2' })),
     cancel: vi.fn(async () => ({ ok: true })),
     status: vi.fn(async () => ({ ...status })),
     reveal: vi.fn(async () => undefined),
@@ -174,6 +175,14 @@ describe('App', () => {
 
     fireEvent.click(screen.getByText('打开所在文件夹'));
     expect(bridge.reveal).toHaveBeenCalledWith('C:/Users/me/Downloads/Eraser/clip_no_watermark.mp4');
+
+    // The result can be enlarged further; the request must point at the file
+    // that was just produced, not the original.
+    fireEvent.click(screen.getByText('放大 4×'));
+    await waitFor(() => expect(bridge.upscale).toHaveBeenCalledTimes(1));
+    const upscaleRequest = bridge.upscale.mock.calls[0]![0];
+    expect(upscaleRequest.input_path).toBe('C:/Users/me/Downloads/Eraser/clip_no_watermark.mp4');
+    expect(upscaleRequest.scale).toBe(4);
   });
 
   it('can cancel a running job', async () => {

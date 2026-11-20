@@ -207,6 +207,44 @@ def command_process(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_upscale(args: argparse.Namespace) -> int:
+    from engine.pipeline.upscale_job import UpscaleError, upscale_video
+    from engine.pipeline.upscaler import UpscaleModelNotFound
+
+    path = Path(args.input)
+    if not path.is_file():
+        print(f"no such file: {path}", file=sys.stderr)
+        return 2
+
+    output = Path(args.output) if args.output else path.with_name(f"{path.stem}_x{args.scale}.mp4")
+    progress = ProgressLine(enabled=not args.quiet and sys.stdout.isatty())
+    print(f"input      {path}")
+    print(f"output     {output}")
+    print(f"scale      {args.scale}x")
+
+    started = time.monotonic()
+    try:
+        result = upscale_video(
+            path,
+            output,
+            scale=args.scale,
+            progress=lambda payload: progress.update(payload),
+        )
+    except UpscaleModelNotFound as exc:
+        print(f"model missing: {exc}", file=sys.stderr)
+        return 1
+    except UpscaleError as exc:
+        print(f"upscale failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        progress.finish()
+
+    elapsed = time.monotonic() - started
+    print(f"done       {result['output_path']}  ({result['width']}x{result['height']})")
+    print(f"elapsed    {elapsed:.1f}s")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="eraser-engine",
@@ -237,6 +275,13 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--quiet", action="store_true", help="no progress output")
     process.add_argument("--traceback", action="store_true", help="show the traceback on failure")
     process.set_defaults(handler=command_process)
+
+    upscale = subparsers.add_parser("upscale", help="enlarge a video 2x or 4x (Real-ESRGAN)")
+    upscale.add_argument("input")
+    upscale.add_argument("--scale", type=int, choices=(2, 4), default=4)
+    upscale.add_argument("--output", default=None, help="output file path")
+    upscale.add_argument("--quiet", action="store_true")
+    upscale.set_defaults(handler=command_upscale)
     return parser
 
 

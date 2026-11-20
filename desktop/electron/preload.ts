@@ -17,6 +17,7 @@ import {
   type ProbeResult,
   type StartRequest,
   type TaskStatus,
+  type UpscaleRequest,
 } from '../shared/ipc';
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
@@ -33,6 +34,8 @@ const bridge: EraserBridge = {
   pickOutputDir: (): Promise<PickResult> => ipcRenderer.invoke(IPC.pickOutputDir),
   probe: (path: string): Promise<ProbeResult> => ipcRenderer.invoke(IPC.probe, path),
   start: (request: StartRequest): Promise<{ task_id: string }> => ipcRenderer.invoke(IPC.start, request),
+  upscale: (request: UpscaleRequest): Promise<{ task_id: string }> =>
+    ipcRenderer.invoke(IPC.upscale, request),
   cancel: (taskId: string): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.cancel, taskId),
   status: (taskId: string): Promise<TaskStatus> => ipcRenderer.invoke(IPC.status, taskId),
   reveal: (path: string): Promise<void> => ipcRenderer.invoke(IPC.reveal, path),

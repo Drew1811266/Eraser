@@ -500,6 +500,43 @@
       }
     },
     {
+      "name": "upscale.start",
+      "summary": "Upscale a video 2x or 4x with Real-ESRGAN. Returns a task id; progress is streamed and the task is inspected through process.status / process.cancel.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "input_path": {
+            "type": "string"
+          },
+          "output_dir": {
+            "type": "string"
+          },
+          "scale": {
+            "type": "integer"
+          },
+          "model_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "input_path"
+        ]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
       "name": "model.list",
       "summary": "List known models and their install state.",
       "implemented": true,

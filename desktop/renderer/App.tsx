@@ -22,6 +22,7 @@ export function App(): ReactElement {
   const [logs, setLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [recentOutput, setRecentOutput] = useState<string>('');
+  const [upscaleBusy, setUpscaleBusy] = useState(false);
   const logRef = useRef<string[]>([]);
 
   const phase: Phase = status?.state === 'success' || status?.state === 'failed'
@@ -150,6 +151,36 @@ export function App(): ReactElement {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   }, [taskId]);
+
+  const startUpscale = useCallback(async (scale: 2 | 4) => {
+    if (!recentOutput) {
+      return;
+    }
+    setError('');
+    setUpscaleBusy(true);
+    try {
+      const started = await window.eraser.upscale({
+        input_path: recentOutput,
+        output_dir: outputDir || undefined,
+        scale,
+      });
+      setStatus({
+        task_id: started.task_id,
+        state: 'running',
+        phase: 'prepare',
+        progress: 0,
+        processed: 0,
+        total: 0,
+        eta_seconds: null,
+        message: `放大 ${scale}× 准备中…`,
+      });
+      setTaskId(started.task_id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setUpscaleBusy(false);
+    }
+  }, [recentOutput, outputDir]);
 
   useEffect(() => {
     if (status?.state === 'success' && status.result?.output_path) {
@@ -286,6 +317,15 @@ export function App(): ReactElement {
                       <button className="ghost" onClick={() => window.eraser.openExternal(recentOutput)}>播放</button>
                       <button className="ghost" onClick={() => window.eraser.reveal(recentOutput)}>打开所在文件夹</button>
                     </div>
+                    <div className="row">
+                      <button className="ghost" disabled={upscaleBusy} onClick={() => startUpscale(2)}>
+                        放大 2×
+                      </button>
+                      <button className="ghost" disabled={upscaleBusy} onClick={() => startUpscale(4)}>
+                        放大 4×
+                      </button>
+                    </div>
+                    <p className="muted">分辨率不够时可以再放大；2×/4× 由 Real-ESRGAN 完成。</p>
                   </div>
                 )}
                 {status?.state === 'failed' && (

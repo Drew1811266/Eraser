@@ -9,6 +9,7 @@ from engine.rpc.server import RpcServer
 
 
 def _model_entries() -> list[dict[str, Any]]:
+    from engine.pipeline import upscaler
     from engine.pipeline.remover import ModelNotFound, resolve_model_path
 
     try:
@@ -19,6 +20,11 @@ def _model_entries() -> list[dict[str, Any]]:
         installed = False
         detail = ""
 
+    upscale_installed = upscaler.is_installed()
+    upscale_detail = ""
+    if not upscale_installed:
+        upscale_detail = f"Real-ESRGAN ONNX weights not found ({upscaler.default_model_path()})"
+
     return [
         {
             "model_id": "lama_roi",
@@ -27,7 +33,15 @@ def _model_entries() -> list[dict[str, Any]]:
             "installed": installed,
             "implemented": True,
             "blocked_reason": "" if installed else f"LaMa ONNX weights not found ({detail})",
-        }
+        },
+        {
+            "model_id": "realesrgan_x4",
+            "display_name": "Real-ESRGAN x4plus (ONNX)",
+            "engine": "realesrgan",
+            "installed": upscale_installed,
+            "implemented": True,
+            "blocked_reason": upscale_detail,
+        },
     ]
 
 

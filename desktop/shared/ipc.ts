@@ -92,6 +92,12 @@ export interface EngineState {
   capabilities?: Capabilities;
 }
 
+export interface UpscaleRequest {
+  input_path: string;
+  output_dir?: string;
+  scale?: 2 | 4;
+}
+
 export interface PickResult {
   canceled: boolean;
   path?: string;
@@ -117,6 +123,7 @@ export function mediaUrl(absolutePath: string): string {
   pickOutputDir(): Promise<PickResult>;
   probe(path: string): Promise<ProbeResult>;
   start(request: StartRequest): Promise<{ task_id: string }>;
+  upscale(request: UpscaleRequest): Promise<{ task_id: string }>;
   cancel(taskId: string): Promise<{ ok: boolean }>;
   status(taskId: string): Promise<TaskStatus>;
   reveal(path: string): Promise<void>;
@@ -133,6 +140,7 @@ export const IPC = {
   pickOutputDir: 'dialog:pick-output-dir',
   probe: 'engine:probe',
   start: 'engine:start',
+  upscale: 'engine:upscale',
   cancel: 'engine:cancel',
   status: 'engine:status',
   reveal: 'shell:reveal',
