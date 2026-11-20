@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from engine.pipeline.logging import logger
-from engine.platform.paths import default_output_dir, ensure_dir
 from engine.rpc.errors import RpcError
 from engine.rpc.server import RpcServer
+from engine.runner import DEFAULT_MODEL_ID, output_path_for, run_job
 from engine.tasks import TaskManager, TaskRecord
 
 _live_processors: dict[str, Any] = {}
@@ -22,10 +22,7 @@ _live_lock = threading.Lock()
 
 
 def build_output_path(input_path: str, output_dir: str | None) -> Path:
-    source = Path(input_path)
-    directory = Path(output_dir) if output_dir else default_output_dir()
-    ensure_dir(directory)
-    return directory / f"{source.stem}_no_watermark.mp4"
+    return output_path_for(input_path, output_dir)
 
 
 def _apply_progress(manager: TaskManager, task: TaskRecord, payload: Any) -> None:
@@ -64,40 +61,29 @@ def _run_task(
     segments: list[dict[str, Any]],
     model_id: str,
 ) -> None:
-    from engine.pipeline.remover import ModelNotFound, WatermarkRemover
-    from engine.pipeline.watermark import VideoProcessor
+    from engine.pipeline.remover import ModelNotFound
 
-    try:
-        processor = VideoProcessor(remover=WatermarkRemover())
+    def register(processor: Any) -> None:
         with _live_lock:
             _live_processors[task.task_id] = processor
 
-        manager.update(task, phase="prepare", message="Loading models")
-
-        result = processor.process_video(
+    try:
+        result = run_job(
             input_path,
-            str(output_path),
+            output_path,
             segments,
             model_id,
-            progress_callback=lambda payload: _apply_progress(manager, task, payload),
-            status_callback=lambda message: manager.update(task, message=str(message)),
+            progress=lambda payload: _apply_progress(manager, task, payload),
+            status=lambda message: manager.update(task, message=str(message)),
+            on_processor=register,
+            cancel=task.cancel,
         )
 
         if task.cancel.is_set():
             manager.finish(task, error="Cancelled")
             return
 
-        normalised = result if isinstance(result, dict) else {}
-        final_path = normalised.get("output_path") or normalised.get("output") or str(output_path)
-        manager.finish(
-            task,
-            result={
-                "output_path": str(final_path),
-                "requested_model_id": normalised.get("requested_model_id", model_id),
-                "effective_model_id": normalised.get("effective_model_id", model_id),
-                "model_warning": normalised.get("model_warning", ""),
-            },
-        )
+        manager.finish(task, result=result)
     except ModelNotFound as exc:
         manager.finish(task, error=f"MODEL_MISSING: {exc}")
     except Exception as exc:  # noqa: BLE001 - boundary
@@ -122,7 +108,7 @@ def register(server: RpcServer, manager: TaskManager) -> None:
         if not isinstance(segments, list) or not segments:
             raise RpcError("INVALID_PARAMS", "segments must be a non-empty array")
 
-        model_id = str(params.get("model_id") or "lama_roi")
+        model_id = str(params.get("model_id") or DEFAULT_MODEL_ID)
         output_path = build_output_path(input_path, params.get("output_dir"))
 
         task = manager.create("process")

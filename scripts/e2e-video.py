@@ -315,6 +315,17 @@ def main() -> int:
             if b["progress"] < a["progress"]
         ]
         check("progress never goes backwards", not non_monotonic, str(non_monotonic[:3]))
+
+        # A progress bar that only ever shows 0% and then 100% is a bug: the
+        # pipeline must report intermediate work.
+        intermediate = [
+            event for event in progress_events if 0.01 < float(event["progress"]) < 0.99
+        ]
+        check("progress reports intermediate work", len(intermediate) >= 3,
+              f"{len(intermediate)} of {len(progress_events)} events")
+        counted = [event for event in progress_events if int(event.get("processed") or 0) > 0]
+        check("frame counter advances", bool(counted),
+              f"max processed {max((int(e.get('processed') or 0) for e in progress_events), default=0)}")
         print(f"   processed {FRAMES} frames in {elapsed:.1f}s "
               f"({elapsed / FRAMES * 1000:.0f} ms/frame)")
     finally:

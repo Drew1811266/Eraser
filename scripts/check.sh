@@ -27,7 +27,9 @@ fi
 export ERASER_PYTHON="$PY"
 
 STEPS=3
-[ "$FULL" = "1" ] && STEPS=4
+if [ "$FULL" = "1" ]; then
+  STEPS=4
+fi
 
 echo "== [1/$STEPS] contract artifacts are in sync =="
 "$PY" contract/codegen/generate.py --check
