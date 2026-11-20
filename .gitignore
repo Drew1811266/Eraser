@@ -1,0 +1,63 @@
+# ---- Reference snapshot (local only) ----
+.reference/
+.reference-*/
+
+# ---- Node / Electron ----
+node_modules/
+desktop/node_modules/
+desktop/dist/
+desktop/dist-electron/
+desktop/release/
+desktop/.functional-test/
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+engine/build/
+engine/dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Build outputs ----
+build/
+dist/
+out/
+*.spec
+*.exe
+*.msi
+*.nupkg
+
+# ---- Assets (never in git; distributed separately) ----
+assets/ffmpeg/
+assets/models/
+vendor/
+models/
+*.onnx
+*.gguf
+*.pth
+*.pt
+*.safetensors
+*.bin
+
+# ---- Golden samples (use LFS or external storage) ----
+golden/cases/**/*.mp4
+golden/cases/**/*.mkv
+golden/cases/**/*.webm
+
+# ---- Local state ----
+logs/
+*.log
+.omx/
+.trae/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.config.local.*
