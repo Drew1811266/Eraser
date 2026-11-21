@@ -15,7 +15,7 @@ import sys
 
 def run() -> int:
     argv = sys.argv[1:]
-    if argv and argv[0] in {"info", "probe", "process", "upscale"}:
+    if argv and argv[0] in {"info", "probe", "process", "upscale", "analyze"}:
         from engine.cli import main as cli_main
 
         return cli_main(argv)

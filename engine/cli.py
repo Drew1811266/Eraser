@@ -245,6 +245,67 @@ def command_upscale(args: argparse.Namespace) -> int:
     return 0
 
 
+def _analyze(args: argparse.Namespace) -> dict:
+    from engine.pipeline.analyze_job import run_analysis
+    from engine.pipeline.detect.stub import ScriptedDetector, load_detections
+
+    detector = ScriptedDetector(load_detections(args.detections))
+    analysis = run_analysis(
+        args.input,
+        detector,
+        sample_step=args.step,
+        max_tracks=args.max_tracks,
+        min_confidence=args.min_confidence,
+    )
+    return analysis.as_dict()
+
+
+def command_analyze(args: argparse.Namespace) -> int:
+    import json
+
+    from engine.pipeline.analyze_job import AnalysisError
+
+    path = Path(args.input)
+    if not path.is_file():
+        print(f"no such file: {path}", file=sys.stderr)
+        return 2
+    if not Path(args.detections).is_file():
+        print(f"no such detection script: {args.detections}", file=sys.stderr)
+        return 2
+
+    try:
+        payload = _analyze(args)
+    except AnalysisError as exc:
+        print(f"analysis failed: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    video = payload["video"]
+    print(
+        f"video      {video['width']}x{video['height']} {video['fps']}fps "
+        f"{video['frame_count']} frames"
+    )
+    print(f"shots      {len(payload['shots'])}")
+    for track in payload["watermarks"]:
+        intervals = ", ".join(
+            f"{item['start_frame']}-{item['end_frame']}" for item in track["intervals"]
+        )
+        print(
+            f"watermark  {track['id']}  {track['motion']}  {intervals}  "
+            f"confidence {track['confidence']:.2f}"
+        )
+    if not payload["watermarks"]:
+        print("watermark  (none detected)")
+    advice = payload["suggested"]
+    print(f"suggested  engine={advice['engine_id']} split_by_shot={advice['split_by_shot']}")
+    if advice["warnings"]:
+        print(f"warnings   {', '.join(advice['warnings'])}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="eraser-engine",
@@ -282,6 +343,15 @@ def build_parser() -> argparse.ArgumentParser:
     upscale.add_argument("--output", default=None, help="output file path")
     upscale.add_argument("--quiet", action="store_true")
     upscale.set_defaults(handler=command_upscale)
+
+    analyze = subparsers.add_parser("analyze", help="analyse a video's watermark situation")
+    analyze.add_argument("input")
+    analyze.add_argument("--detections", required=True, help="JSON detection script")
+    analyze.add_argument("--step", type=int, default=15, help="sample every N frames")
+    analyze.add_argument("--max-tracks", type=int, default=8)
+    analyze.add_argument("--min-confidence", type=float, default=0.35)
+    analyze.add_argument("--json", action="store_true", help="print the analysis as JSON")
+    analyze.set_defaults(handler=command_analyze)
     return parser
 
 
