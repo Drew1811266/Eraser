@@ -66,3 +66,14 @@ desktop.config.local.*
 
 # downloaded assets and test scratch space
 .cache/
+
+# ---- Scratch that must never be committed ----
+# `tempfile.gettempdir()` can resolve to the working directory when the system
+# temp is unwritable (see engine/platform/paths.py), so these are guarded here
+# as well as in code.
+/eraser/
+/seedvr-driver-*/
+/seedvr-task-*/
+/seedvr-out-*/
+/pip-build-tracker-*/
+/preview-*/
