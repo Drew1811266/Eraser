@@ -440,3 +440,68 @@ def suggest_strategy(
             warnings.append("quality_engine_unavailable")
 
     return {"engine_id": engine, "split_by_shot": multi_shot, "warnings": warnings}
+
+
+def compile_tracks(
+    tracks: list[WatermarkTrack],
+    *,
+    shots: list[Interval],
+    frame_width: int,
+    frame_height: int,
+    expand_px: int = 5,
+    feather_px: int = 3,
+) -> list[dict[str, Any]]:
+    """Flatten tracks into the Segment list the existing pipeline understands.
+
+    A track that spans a cut becomes one segment per shot: a temporal model must
+    not interpolate a trajectory across a scene change, and the pipeline already
+    treats segments as independent runs.
+
+    The ROI is the union of the keyframes inside the range, so a moving watermark
+    keeps a *stable* crop while its per-frame mask moves — stable crops are what
+    the flow-propagation engines want.
+    """
+    if not shots:
+        last_end = max(
+            (item.intervals[-1].end_frame for item in tracks if item.intervals),
+            default=0,
+        )
+        shots = [Interval(0, max(0, last_end))]
+
+    segments: list[dict[str, Any]] = []
+    for track in tracks:
+        for interval in track.intervals:
+            for shot in shots:
+                start = max(interval.start_frame, shot.start_frame)
+                end = min(interval.end_frame, shot.end_frame)
+                if end < start:
+                    continue
+
+                inside = [item for item in track.keyframes if start <= item.frame <= end]
+                if not inside:
+                    before = [item for item in track.keyframes if item.frame <= end]
+                    inside = before[-1:] or track.keyframes[:1]
+                if not inside:
+                    continue
+
+                rect = BBox.union([item.rect for item in inside]).clamp(
+                    frame_width, frame_height
+                )
+                segments.append(
+                    {
+                        "id": f"{track.id}@{start}-{end}",
+                        "start_frame": int(start),
+                        "end_frame": int(end),
+                        "rect": rect.as_dict(),
+                        "expand_px": int(expand_px),
+                        "feather_px": int(feather_px),
+                        "enabled": True,
+                        "keyframes": [
+                            {"frame": int(item.frame), "rect": item.rect.as_dict()}
+                            for item in inside
+                        ],
+                    }
+                )
+
+    segments.sort(key=lambda item: (item["start_frame"], item["end_frame"], item["id"]))
+    return segments
