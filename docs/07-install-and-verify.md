@@ -27,7 +27,18 @@
 | 显卡 | GPU 版需 NVIDIA，显存 ≥ 4GB；不支持 AMD/Intel 加速（会退回 CPU） |
 | 依赖 | 无需安装 Python、ffmpeg、CUDA 工具包——都已随包 |
 
-## 3. 安装
+## 3. 不安装也能运行
+
+安装包做的事只是把 `win-unpacked` 整个目录复制到 `%LOCALAPPDATA%\Programs\Eraser`
+并登记卸载项。**同一个程序有三种打开方式**，功能完全一致：
+
+| 方式 | 操作 | 需要安装吗 |
+|---|---|---|
+| 免安装直接跑 | 双击 `dist/installer/win-unpacked/Eraser.exe` | 不需要 |
+| 用构建产物启动 | `npm --prefix desktop start` | 不需要（需先 `npm install` + `npm run build`） |
+| 开发模式 | `npm --prefix desktop run dev` | 不需要，界面改动即时生效 |
+
+## 4. 安装
 
 1. 双击安装包。
 2. Windows 会弹 **"Windows 已保护你的电脑"**：因为没有做代码签名（无证书），
@@ -38,7 +49,7 @@
 卸载：设置 → 应用 → Eraser，或安装目录下的 `Uninstall Eraser.exe`。
 默认**保留**用户数据（见下）。
 
-## 4. 第一次跑
+## 5. 第一次跑
 
 1. 点「打开视频」，选一个文件。
 2. 预览区右上角会出现一个虚线框，那是默认猜测的水印位置；
@@ -49,7 +60,7 @@
 
 结果文件名为 `<原文件名>_no_watermark.mp4`，H.264 + 原音轨。
 
-## 5. 不用界面也能验证
+## 6. 不用界面也能验证
 
 引擎本身就是 CLI， froze 前后同一条代码路径：
 
@@ -71,7 +82,7 @@ devices:
 
 `cuda_usable: False` 就是真的没用上 GPU——不是"应该能"，是实测加载了 provider DLL。
 
-## 6. 数据放在哪
+## 7. 数据放在哪
 
 | 内容 | 位置 |
 |---|---|
@@ -82,7 +93,7 @@ devices:
 
 卸载不会删 `%LOCALAPPDATA%\Eraser`；要彻底清理请手动删除该目录。
 
-## 7. 已知限制（v1）
+## 8. 已知限制（v1）
 
 | 限制 | 说明 |
 |---|---|
@@ -93,7 +104,7 @@ devices:
 | 无自动更新 | 新版本需手动安装 |
 | 预览不支持 MKV/部分 HEVC | Chromium 的解码限制；处理本身不受影响（ffmpeg 负责） |
 
-## 8. 出问题怎么报
+## 9. 出问题怎么报
 
 引擎日志在应用里点右上角「日志」就能看，也可以在 `%LOCALAPPDATA%\Eraser\logs\` 找到。
 报问题时请附上：
