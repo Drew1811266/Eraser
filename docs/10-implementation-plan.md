@@ -2427,7 +2427,7 @@ git commit -m "feat(cli): analyze subcommand so the pipeline can be checked with
 **Files:**
 - Modify: `docs/09-model-and-automation-redesign.md`（§11 勾选已完成工作项，§13 状态更新）
 - Modify: `CHANGELOG.md`（新增"未发布"小节）
-- Create: `docs/10-analysis-baseline.md`（记录本里程碑实测：合成夹具上的 track 数、耗时）
+- Create: `docs/11-analysis-baseline.md`（记录本里程碑实测：合成夹具上的 track 数、耗时）
 
 **Interfaces:**
 - Consumes: 前 9 个任务的全部产出
@@ -2440,7 +2440,7 @@ Expected: `ALL GATES PASSED`（4 道：契约同步、174+ 单测、协议 e2e�
 
 - [ ] **Step 2: 记录实测数字**
 
-用 Task 9 的 CLI 在 `.cache/fixture.mp4` 上跑一次，把 `elapsed_ms`、track 数、shots 数写进 `docs/10-analysis-baseline.md`：
+用 Task 9 的 CLI 在 `.cache/fixture.mp4` 上跑一次，把 `elapsed_ms`、track 数、shots 数写进 `docs/11-analysis-baseline.md`：
 
 ```markdown
 # 10 · 分析管线基线（M1）
@@ -2480,7 +2480,7 @@ Expected: `ALL GATES PASSED`（4 道：契约同步、174+ 单测、协议 e2e�
 - [ ] **Step 5: 提交**
 
 ```bash
-git add docs/09-model-and-automation-redesign.md docs/10-analysis-baseline.md CHANGELOG.md
+git add docs/09-model-and-automation-redesign.md docs/11-analysis-baseline.md CHANGELOG.md
 git commit -m "docs: record the M1 analysis baseline and mark the finished work items"
 ```
 
@@ -2503,3 +2503,18 @@ git commit -m "docs: record the M1 analysis baseline and mark the finished work 
 ## 执行方式
 
 本计划任务间有强接口依赖（Task 2 的类型贯穿 4–8），且总共 10 个任务、每一步都要求跑测试，**推荐 Native 执行**（我在本会话里按顺序做），最后对整条分支做一次审查。
+
+---
+
+## 执行后记（2026-11-21）
+
+计划按 10 个任务执行完毕（11 个 commit，244 条单测全绿），随后做了一次**独立审查**，
+发现 1 个 Critical、8 个 Important。全部修复后：
+
+- 单测 174 → **274**；门禁 4/4 全绿。
+- Critical：分析用的下采样帧，检测框从未映射回原坐标——1080p 素材上所有 `rect` 都会错位。
+  修复为 `rescale_detections()` + 一条 1600 宽的端到端用例（400→500）。
+- 其余修复与限制见 [docs/11-analysis-baseline.md](11-analysis-baseline.md) §4、§5。
+
+教训写进计划而不是只写进提交信息：**"管线跑通"不等于"坐标正确"**，
+端到端用例必须包含一个会触发缩放/裁剪的输入，否则夹具的尺寸会把整类 bug 藏起来。

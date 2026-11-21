@@ -11,7 +11,7 @@
 - 新增 `annotation.compile`：把水印轨道摊平成现有管线消费的 `Segment[]`（含逐帧关键帧）。
 - 新增 CLI `eraser-engine analyze`：不装界面也能看到分析结果。
 - 检测器是可插拔接口；本里程碑只带脚本检测器（`ERASER_DETECT_STUB`），真实视觉模型在 M2 接入。
-- 引擎单测 174 → **244**，其中新增 41 条覆盖分析管线；`bash scripts/check.sh` 全绿。
+- 引擎单测 174 → **274**（新增 100 条）；`bash scripts/check.sh` 全绿。
 - 实测基线见 [docs/11-analysis-baseline.md](docs/11-analysis-baseline.md)。
 
 ---
