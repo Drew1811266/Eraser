@@ -14,6 +14,7 @@ from typing import Sequence, TextIO
 from engine import __version__
 from engine.methods import register_all
 from engine.methods.system import build_capabilities
+from engine.platform.watchdog import ParentWatchdog
 from engine.rpc.server import RpcServer
 
 NOISE_ENV = "ERASER_STDERR_NOISE"
@@ -79,11 +80,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     # first frame after registration succeeds.
     server.notify("ready", build_capabilities(server))
 
+    # Stdin EOF handles an orderly shutdown; this handles the shell being killed,
+    # which is the case that leaves a CUDA context pinned to a dead window.
+    watchdog = ParentWatchdog()
+    watchdog.start()
+
     try:
         server.serve()
     except KeyboardInterrupt:
         pass
     finally:
+        watchdog.stop()
         if trace is not None:
             trace.close()
 
