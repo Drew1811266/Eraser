@@ -1,0 +1,17 @@
+{
+  "segments": [
+    {
+      "start_frame": 0,
+      "end_frame": 47,
+      "rect": {
+        "x": 480,
+        "y": 20,
+        "width": 120,
+        "height": 60
+      },
+      "expand_px": 5,
+      "feather_px": 3,
+      "enabled": true
+    }
+  ]
+}

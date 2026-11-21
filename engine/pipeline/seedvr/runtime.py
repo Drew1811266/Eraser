@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import threading
 import urllib.request
 from dataclasses import dataclass
@@ -64,18 +65,31 @@ def _no_window() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
-def _emit(progress: ProgressCallback | None, **payload: Any) -> None:
-    if progress is None:
+def _emit(callback: ProgressCallback | None, **payload: Any) -> None:
+    # Named `callback`, not `progress`: the payload carries its own `progress`
+    # key and the two would collide.
+    if callback is None:
         return
     try:
-        progress(payload)
+        callback(payload)
     except Exception as exc:  # noqa: BLE001 - progress must never break a run
         logger.warning("seedvr progress callback failed: %s", exc)
 
 
-def _run(command: list[str], *, timeout: float | None = None,
-         cancel: CancelEvent = None) -> subprocess.CompletedProcess:
-    """Run a command, checking the cancel flag while it works."""
+def _run(
+    command: list[str],
+    *,
+    timeout: float | None = None,
+    stall_timeout: float | None = None,
+    on_line: Callable[[str], None] | None = None,
+    cancel: CancelEvent = None,
+) -> subprocess.CompletedProcess:
+    """Run a command, watching for cancellation and for a silent stall.
+
+    `stall_timeout` exists because pip can fail in the least helpful way
+    possible: not an error, just no bytes, forever. Without it the install hangs
+    at "installing dependencies" with no explanation and no end.
+    """
     creation = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     process = subprocess.Popen(
         command,
@@ -88,11 +102,18 @@ def _run(command: list[str], *, timeout: float | None = None,
     )
 
     chunks: list[str] = []
+    last_output = [time.monotonic()]
 
     def pump() -> None:
         assert process.stdout is not None
         for line in process.stdout:
             chunks.append(line)
+            last_output[0] = time.monotonic()
+            if on_line is not None:
+                try:
+                    on_line(line.rstrip())
+                except Exception:  # noqa: BLE001 - a callback must not kill the run
+                    pass
 
     reader = threading.Thread(target=pump, name="seedvr-output", daemon=True)
     reader.start()
@@ -111,6 +132,12 @@ def _run(command: list[str], *, timeout: float | None = None,
                     if timeout <= 0:
                         _kill_tree(process)
                         raise SeedVRError("command timed out")
+                if stall_timeout is not None and time.monotonic() - last_output[0] > stall_timeout:
+                    _kill_tree(process)
+                    raise SeedVRError(
+                        f"no output for {int(stall_timeout)}s — the network cannot reach the "
+                        "package index (a proxy that drops connections looks exactly like this)"
+                    )
     finally:
         reader.join(timeout=2)
 
@@ -244,9 +271,18 @@ class SeedVRRuntime:
                 )
                 if result.returncode != 0:
                     raise SeedVRError(f"pip upgrade failed: {result.stdout[-400:]}")
+                def pip_line(line: str) -> None:
+                    text = line.strip()
+                    if not text:
+                        return
+                    # pip's own words are the only honest progress there is.
+                    stage("requirements", 0.5, text[:120])
+
                 result = _run(
                     [str(manifest.venv_python()), "-m", "pip", "install", "-r",
                      str(manifest.requirements_file())],
+                    stall_timeout=300.0,
+                    on_line=pip_line,
                     cancel=cancel,
                 )
                 if result.returncode != 0:

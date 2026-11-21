@@ -110,3 +110,13 @@ node scripts/e2e-desktop.mjs
 | Electron 45 在用户机器上的启动 | 低 | 本机崩溃原因未定位到产品代码（最小复现同样崩溃），但也不能排除与特定 Windows 构建有关 |
 | 未签名 | 已接受 | 每次安装都会触发 SmartScreen 提示 |
 | 长时间/大分辨率视频 | 中 | 未测 4K 长片；内存与临时磁盘占用按"帧流式管道"设计，但没有实测上限 |
+
+
+## 9. 黄金样本现状
+
+`scripts/golden.py` 已可执行手册里的流程。当前仓库里只有 **3 条合成 baseline 用例**
+（单 ROI / 越界 ROI / 竖屏带音轨），它们的作用是防退化，**不能证明与 mac 版一致**。
+
+参考实现代码里的 `src/core/scene_splitter.py` 是纯逻辑（ffmpeg + 可选 scenedetect），
+可用于逐函数对比；`annotations.py` 只依赖标准库，也可以直接跑。宏观画质对位仍需要
+一台 mac 录 reference 用例。

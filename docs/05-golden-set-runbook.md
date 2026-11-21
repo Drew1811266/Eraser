@@ -112,7 +112,26 @@ python scripts/compare-video.py \
 
 ---
 
-## 6. 完成标志
+## 6. 用脚本跑（不再手工比）
+
+手册里的步骤已经脚本化：
+
+```bash
+python scripts/golden.py --synth    # 生成本地可造的 3 条合成用例
+python scripts/golden.py --build    # 用当前构建设立基准（写 expected.mp4）
+python scripts/golden.py --check    # 跑全部用例并与 expected.mp4 比对
+```
+
+`--check` 会为每条用例打印 SSIM / PSNR 与阈值，并**明确区分两类用例**：
+
+| 类型 | 由谁录制 | 能证明什么 |
+|---|---|---|
+| `baseline` | 当前 Windows 构建 | 只能证明"没有退化" |
+| `reference` | mac 版（或参考实现） | 才能证明"和 mac 一致" |
+
+汇总里会写 `N reference case(s)`。**只有 reference 用例全部通过，才等于质量对位。**
+
+## 7. 完成标志
 
 - [ ] 6 个用例目录齐全，`input.mp4` / `annotations.wmr.json` / `expected.mp4` / `meta.json` 四件套完整
 - [ ] 每条用例的 `baseline.wall_seconds` 已填

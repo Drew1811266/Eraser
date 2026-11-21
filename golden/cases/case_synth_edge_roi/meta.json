@@ -1,0 +1,19 @@
+{
+  "case_id": "case_synth_edge_roi",
+  "captured_at": "2026-11-21T16:12:16+0800",
+  "captured_on": {
+    "os": "Windows"
+  },
+  "engine": {
+    "model_id": "lama_roi"
+  },
+  "input": {
+    "width": 640,
+    "height": 360,
+    "frames": 24,
+    "has_audio": false
+  },
+  "baseline": {
+    "output_bytes": 66601
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "case_id": "case_synth_portrait_audio",
+  "captured_at": "2026-11-21T16:12:23+0800",
+  "captured_on": {
+    "os": "Windows"
+  },
+  "engine": {
+    "model_id": "lama_roi"
+  },
+  "input": {
+    "width": 360,
+    "height": 640,
+    "frames": 24,
+    "has_audio": true
+  },
+  "baseline": {
+    "output_bytes": 82774
+  }
+}
