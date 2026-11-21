@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -134,9 +135,9 @@ def _run(
                         raise SeedVRError("command timed out")
                 if stall_timeout is not None and time.monotonic() - last_output[0] > stall_timeout:
                     _kill_tree(process)
+                    last_line = chunks[-1].strip()[:120] if chunks else "(nothing)"
                     raise SeedVRError(
-                        f"no output for {int(stall_timeout)}s — the network cannot reach the "
-                        "package index (a proxy that drops connections looks exactly like this)"
+                        f"no output for {int(stall_timeout)}s; last line: {last_line}"
                     )
     finally:
         reader.join(timeout=2)
@@ -218,6 +219,52 @@ class InstallResult:
     files: list[str]
 
 
+def _lock_path() -> Path:
+    return manifest.runtime_root() / ".install.lock"
+
+
+def _holder_pid() -> int:
+    try:
+        return int(_lock_path().read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        return 0
+
+
+def _process_alive(pid: int) -> bool:
+    from engine.platform.watchdog import parent_is_alive
+
+    return pid > 0 and parent_is_alive(pid)
+
+
+class _InstallLock:
+    """One install at a time, across processes.
+
+    Two installs into the same virtualenv do not fail — they deadlock, one
+    holding the other's lock, and the pair looks like a hung download. A user
+    who clicks the button twice must get "already running", not silence.
+    """
+
+    def __init__(self) -> None:
+        self.acquired = False
+
+    def __enter__(self) -> "_InstallLock":
+        path = _lock_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        holder = _holder_pid()
+        if holder and holder != os.getpid() and _process_alive(holder):
+            raise SeedVRError(f"another install is already running (pid {holder})")
+        path.write_text(str(os.getpid()), encoding="utf-8")
+        self.acquired = True
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        if self.acquired:
+            try:
+                _lock_path().unlink()
+            except OSError:
+                pass
+
+
 class SeedVRRuntime:
     """Install and run SeedVR2. One instance per engine process is fine."""
 
@@ -232,10 +279,20 @@ class SeedVRRuntime:
         if not python:
             raise SeedVRError("no Python 3.12 interpreter found")
 
-        with self._lock:
-            state = RuntimeState(phase="installing", model_id=model_id, python=python,
-                                 installed_models=list(read_state().installed_models))
-            write_state(state)
+        with self._lock, _InstallLock():
+            return self._install_locked(model_id, spec, python, progress, cancel)
+
+    def _install_locked(
+        self,
+        model_id: str,
+        spec: Any,
+        python: str,
+        progress: ProgressCallback | None,
+        cancel: CancelEvent,
+    ) -> "InstallResult":
+        state = RuntimeState(phase="installing", model_id=model_id, python=python,
+                             installed_models=list(read_state().installed_models))
+        write_state(state)
 
         def stage(name: str, local: float, message: str) -> None:
             offset = sum(STEP_WEIGHTS[key] for key in list(STEP_WEIGHTS)[:list(STEP_WEIGHTS).index(name)])
@@ -287,7 +344,9 @@ class SeedVRRuntime:
                 result = _run(
                     [str(manifest.venv_python()), "-m", "pip", "install", "-r",
                      str(manifest.requirements_file())],
-                    stall_timeout=300.0,
+                    # pip prints nothing while it downloads a 2.5GB wheel, so
+                    # the leash has to be long enough to tell "slow" from "dead".
+                    stall_timeout=1200.0,
                     on_line=pip_line,
                     cancel=cancel,
                 )
