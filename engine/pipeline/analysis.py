@@ -169,9 +169,10 @@ MERGE_GAP_SECONDS = 1.5
 #: Beyond this the watermark is considered to have come back as a new interval.
 REOPEN_GAP_SECONDS = 5.0
 SIZE_SIMILARITY = 0.25
-#: How far a re-appearing watermark may have travelled inside the same shot.
-#: Across a cut this is ignored: the camera moved, not the watermark.
-REOPEN_MAX_TRAVEL = 0.5
+#: Association window as a fraction of the frame width. Used both for
+#: continuation and for re-opening within the same shot; across a cut the camera
+#: moved, so the hard window is dropped and position only breaks ties.
+ASSOCIATION_WINDOW = 0.08
 
 
 def rescale_detections(
@@ -237,36 +238,48 @@ def _similar_size(a: BBox, b: BBox) -> bool:
     )
 
 
-def _match_candidate(
-    reference: BBox,
+def _assign_matches(
+    open_tracks: list[_MutableTrack],
     candidates: list[Detection],
-    used: set[int],
     frame_width: int,
-) -> int | None:
-    """IoU first, nearest-centre second.
+) -> dict[int, int]:
+    """Assign candidates to open tracks, ranked globally.
 
-    The second rule is what keeps small watermarks continuous: a 30 px box that
-    moves 40 px has zero overlap with its previous position, and a plain IoU
-    threshold would split it into a new watermark every sample.
+    Per-track matching lets a track whose own box disappeared take the nearest
+    box belonging to a neighbouring track — the detection counts would look
+    right while the trajectory and motion flag belong to the wrong watermark.
+    Ranking every (track, candidate) pair together makes the pair that wants
+    each other most win first.
+
+    Returns ``{track_index: candidate_index}``.
     """
-    best_index: int | None = None
-    best_iou = 0.0
-    nearest_index: int | None = None
-    nearest_distance = float("inf")
-    for index, item in enumerate(candidates):
-        if index in used:
+    window = ASSOCIATION_WINDOW * frame_width
+    pairs: list[tuple[tuple[int, float, float], int, int]] = []
+    for track_index, track in enumerate(open_tracks):
+        for candidate_index, candidate in enumerate(candidates):
+            score = iou(track.last_rect, candidate.rect)
+            distance = center_distance(track.last_rect, candidate.rect)
+            if score >= IOU_MATCH:
+                rank = (0, -score, distance)
+            elif distance <= window:
+                # Same rule as before, but only reachable when no overlapping
+                # pair exists — that is what makes small watermarks continuous.
+                rank = (1, distance, 0.0)
+            else:
+                continue
+            pairs.append((rank, track_index, candidate_index))
+    pairs.sort(key=lambda item: item[0])
+
+    assignment: dict[int, int] = {}
+    taken_tracks: set[int] = set()
+    taken_candidates: set[int] = set()
+    for _rank, track_index, candidate_index in pairs:
+        if track_index in taken_tracks or candidate_index in taken_candidates:
             continue
-        score = iou(reference, item.rect)
-        if score > best_iou:
-            best_index, best_iou = index, score
-        distance = center_distance(reference, item.rect)
-        if distance < nearest_distance:
-            nearest_index, nearest_distance = index, distance
-    if best_iou >= IOU_MATCH:
-        return best_index
-    if nearest_index is not None and nearest_distance <= 0.08 * frame_width:
-        return nearest_index
-    return None
+        assignment[track_index] = candidate_index
+        taken_tracks.add(track_index)
+        taken_candidates.add(candidate_index)
+    return assignment
 
 
 def associate(
@@ -328,12 +341,13 @@ def associate(
         ]
         used: set[int] = set()
 
-        for track in sorted(open_tracks, key=lambda item: item.last_frame, reverse=True):
-            index = _match_candidate(track.last_rect, candidates, used, frame_width)
-            if index is None:
-                continue
-            _extend(track, frame, candidates[index], shot)
-            used.add(index)
+        # Rank every pair at once: creation order must not decide who gets which
+        # box when two watermarks are close together.
+        assignment = _assign_matches(open_tracks, candidates, frame_width)
+        for track_index in sorted(assignment):
+            candidate_index = assignment[track_index]
+            _extend(open_tracks[track_index], frame, candidates[candidate_index], shot)
+            used.add(candidate_index)
 
         # Anything not matched in this sample becomes idle *before* creation runs,
         # so a watermark that jumps at a cut can be re-identified in the same
@@ -417,11 +431,13 @@ def _reopenable(
 ) -> _MutableTrack | None:
     """Pick the idle track this detection most plausibly belongs to.
 
-    Position is part of the score, not just size: two similar watermarks that
-    both miss one sample would otherwise swap identities. Across a cut position
-    carries no information, so only size and gap are used there.
+    Within a shot the same movement window as continuation applies — a watermark
+    that reappears across the room is a different watermark, not a return.
+    Across a cut the hard window is dropped (the camera moved, not the mark) and
+    position only breaks ties between equally old candidates.
     """
     shot = _shot_index(shots, frame)
+    window = ASSOCIATION_WINDOW * frame_width
     best: _MutableTrack | None = None
     best_score = float("inf")
     for track in idle:
@@ -431,9 +447,13 @@ def _reopenable(
         if not _similar_size(track.last_rect, detection.rect):
             continue
         distance = center_distance(track.last_rect, detection.rect)
-        if shot == track.last_shot and distance > REOPEN_MAX_TRAVEL * frame_width:
+        same_shot = shot == track.last_shot
+        if same_shot and distance > window:
             continue
-        score = gap / max(1e-6, max_gap_seconds) + distance / max(1, frame_width)
+        distance_weight = 1.0 if same_shot else 0.1
+        score = gap / max(1e-6, max_gap_seconds) + distance_weight * distance / max(
+            1, frame_width
+        )
         if score < best_score:
             best, best_score = track, score
     return best

@@ -28,6 +28,13 @@ def _confidence(raw: Any) -> float:
 
 
 def load_detections(path: str) -> dict[int, list[Detection]]:
+    """Read a detection script.
+
+    Boxes are in the coordinate space of the frame the detector receives, which
+    `frames.sample_frames` may have downscaled; `analyze_job` maps them back to
+    source pixels. A script written against the original video would be scaled
+    twice on a clip wider than the analysis ceiling.
+    """
     file = Path(path)
     if not file.is_file():
         raise FileNotFoundError(f"detection script not found: {path}")

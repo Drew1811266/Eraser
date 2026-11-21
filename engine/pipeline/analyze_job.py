@@ -39,6 +39,23 @@ class AnalysisError(RuntimeError):
     """The clip could not be analysed."""
 
 
+def _cut_frames(cuts: list[float], fps: float) -> list[int]:
+    """Frames to sample on top of the uniform grid: the cut and the frame before.
+
+    A shot can be shorter than the sample step, and then the last frame of that
+    shot is the only place its watermark could be seen at all.
+    """
+    if fps <= 0:
+        return []
+    frames: set[int] = set()
+    for cut in cuts:
+        boundary = int(round(cut * fps))
+        for candidate in (boundary - 1, boundary):
+            if candidate > 0:
+                frames.add(candidate)
+    return sorted(frames)[:MAX_EXTRA_FRAMES]
+
+
 def run_analysis(
     input_path: str,
     detector: WatermarkDetector | None,
@@ -79,7 +96,7 @@ def run_analysis(
     shots = build_shots(cuts, fps=fps, frame_count=frame_count)
     # A short shot can fall entirely between two grid samples; the frames a cut
     # lands on are extracted on top of the grid for exactly that reason.
-    cut_frames = [int(round(cut * fps)) for cut in cuts][:MAX_EXTRA_FRAMES]
+    cut_frames = _cut_frames(cuts, fps)
     emit(phase="shots", progress=0.15, message=f"{len(shots)} shot(s)")
 
     if cancel is not None and cancel.is_set():

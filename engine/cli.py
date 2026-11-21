@@ -346,7 +346,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     analyze = subparsers.add_parser("analyze", help="analyse a video's watermark situation")
     analyze.add_argument("input")
-    analyze.add_argument("--detections", required=True, help="JSON detection script")
+    analyze.add_argument(
+        "--detections",
+        required=True,
+        help="JSON detection script; boxes are in the analysed frame's pixel space "
+        "(the frame may be downscaled — see docs/11)",
+    )
     analyze.add_argument("--step", type=int, default=15, help="sample every N frames")
     analyze.add_argument("--max-tracks", type=int, default=8)
     analyze.add_argument("--min-confidence", type=float, default=0.35)

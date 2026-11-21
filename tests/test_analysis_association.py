@@ -87,6 +87,27 @@ class SeparationTests(unittest.TestCase):
         )
 
 
+    def test_nearby_tracks_do_not_steal_each_others_boxes(self) -> None:
+        def small(frame: int, x: int) -> Detection:
+            return Detection(frame, BBox(x, 20, 30, 30), 0.9)
+
+        detections = {
+            0: [small(0, 40), small(0, 90)],
+            # The left watermark jumps past the association window, the right one
+            # stays put. A per-track greedy match would hand the right one's box
+            # to the left track and call it "moving".
+            15: [small(15, 100), small(15, 90)],
+        }
+        tracks = _run(detections)
+        segments = compile_tracks(
+            tracks, shots=[Interval(0, 15)], frame_width=W, frame_height=H
+        )
+        self.assertTrue(
+            all(segment["rect"]["width"] <= 40 for segment in segments),
+            "a segment wider than one box means two tracks were cross-bound",
+        )
+
+
 class MotionTests(unittest.TestCase):
     def test_static_track(self) -> None:
         track = _run({0: [_det(0, 100)], 15: [_det(15, 100)]})[0]
@@ -134,6 +155,13 @@ class ReopenIdentityTests(unittest.TestCase):
             tracks, shots=[Interval(0, 30)], frame_width=W, frame_height=H
         )
         self.assertEqual(sorted(segment["rect"]["x"] for segment in segments), [40, 200])
+
+
+    def test_same_shot_jump_beyond_the_window_is_a_new_track(self) -> None:
+        # 160 px apart in the same shot is two watermarks, not one that jumped.
+        # Merging them is the failure mode the spec calls out first.
+        tracks = _run({0: [_det(0, 40)], 15: [_det(15, 200)]})
+        self.assertEqual(len(tracks), 2)
 
 
 class ShotBoundaryTests(unittest.TestCase):

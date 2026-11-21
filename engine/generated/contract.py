@@ -1489,12 +1489,6 @@ _CONTRACT_JSON = r"""
       "jsonrpc": -32006,
       "retryable": true,
       "message_key": "err.detector_missing"
-    },
-    {
-      "code": "DETECTOR_FAILED",
-      "jsonrpc": -32007,
-      "retryable": true,
-      "message_key": "err.detector_failed"
     }
   ]
 }

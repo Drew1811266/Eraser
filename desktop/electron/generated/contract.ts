@@ -528,7 +528,6 @@ export const ERROR_CODES = {
   "FFMPEG_MISSING": { jsonrpc: -32004, retryable: false, message_key: "err.ffmpeg_missing" },
   "CANCELLED": { jsonrpc: -32005, retryable: true, message_key: "err.cancelled" },
   "DETECTOR_MISSING": { jsonrpc: -32006, retryable: true, message_key: "err.detector_missing" },
-  "DETECTOR_FAILED": { jsonrpc: -32007, retryable: true, message_key: "err.detector_failed" },
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;
