@@ -223,12 +223,19 @@ export interface ProcessStatusParams {
 
 export type ProcessStatusResult = TaskStatus;
 
-/** Upscale a video 2x or 4x with Real-ESRGAN. Returns a task id; progress is streamed and the task is inspected through process.status / process.cancel. */
+/** Upscale a video. Two modes: raise the resolution to a target preset, or enhance at the source resolution. Optional scene splitting, denoise and audio retention. Returns a task id; progress is streamed and the task is inspected through process.status / process.cancel. */
 export interface UpscaleStartParams {
   input_path: string;
   output_dir?: string;
-  scale?: number;
+  mode?: string;
+  engine?: string;
   model_id?: string;
+  target_preset?: string;
+  same_res_strength?: string;
+  denoise_strength?: number;
+  keep_audio?: boolean;
+  scene_split?: string;
+  scale?: number;
 }
 
 export interface UpscaleStartResult {

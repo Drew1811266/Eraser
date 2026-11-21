@@ -164,7 +164,8 @@ _CONTRACT_JSON = r"""
         },
         "result": {
           "type": "object",
-          "additionalProperties": true
+          "additionalProperties": true,
+          "description": "Result payload of a finished task; shape depends on the method."
         },
         "error": {
           "type": "string"
@@ -750,7 +751,7 @@ _CONTRACT_JSON = r"""
     },
     {
       "name": "upscale.start",
-      "summary": "Upscale a video 2x or 4x with Real-ESRGAN. Returns a task id; progress is streamed and the task is inspected through process.status / process.cancel.",
+      "summary": "Upscale a video. Two modes: raise the resolution to a target preset, or enhance at the source resolution. Optional scene splitting, denoise and audio retention. Returns a task id; progress is streamed and the task is inspected through process.status / process.cancel.",
       "implemented": true,
       "params": {
         "type": "object",
@@ -762,11 +763,57 @@ _CONTRACT_JSON = r"""
           "output_dir": {
             "type": "string"
           },
-          "scale": {
-            "type": "integer"
+          "mode": {
+            "type": "string",
+            "enum": [
+              "upscale_resolution",
+              "enhance_same_resolution"
+            ]
+          },
+          "engine": {
+            "type": "string",
+            "enum": [
+              "realesrgan",
+              "seedvr2"
+            ]
           },
           "model_id": {
             "type": "string"
+          },
+          "target_preset": {
+            "type": "string",
+            "enum": [
+              "1080p",
+              "1440p",
+              "4k"
+            ]
+          },
+          "same_res_strength": {
+            "type": "string",
+            "enum": [
+              "x2_then_downscale"
+            ]
+          },
+          "denoise_strength": {
+            "type": "number"
+          },
+          "keep_audio": {
+            "type": "boolean"
+          },
+          "scene_split": {
+            "type": "string",
+            "enum": [
+              "off",
+              "rule",
+              "hybrid"
+            ]
+          },
+          "scale": {
+            "type": "integer",
+            "enum": [
+              2,
+              4
+            ]
           }
         },
         "required": [

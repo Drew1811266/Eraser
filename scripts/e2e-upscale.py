@@ -18,6 +18,7 @@ output must be measurably sharper than a plain bicubic resize of the same frame.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -150,8 +151,93 @@ def main() -> int:
           f"model {model_energy:.1f} vs bicubic {bicubic_energy:.1f}")
 
     print()
+    main_config_scenarios(width, height, frames)
+
+    print()
     print(f"{passed} passed, {failed} failed")
     return 0 if failed == 0 else 1
+
+
+
+def has_audio(path: Path) -> bool:
+    result = run([str(FFPROBE), "-v", "error", "-show_entries", "stream=codec_type",
+                  "-of", "json", str(path)])
+    streams = json.loads(result.stdout.decode("utf-8", "replace") or "{}").get("streams", [])
+    return any(stream.get("codec_type") == "audio" for stream in streams)
+
+
+def build_cut_fixture(destination: Path, first: Path, frames: int) -> None:
+    """A clip that changes shot half way, with an audio track.
+
+    Scene splitting and audio retention were both untestable without this: a
+    single-shot silent clip can neither be split nor lose its sound.
+    """
+    half = max(1, frames // 2)
+    head = destination.parent / "cut-head.mp4"
+    tail = destination.parent / "cut-tail.mp4"
+    run([str(FFMPEG), "-y", "-v", "error", "-i", str(first),
+         "-frames:v", str(half), "-an", "-c:v", "libx264", "-preset", "veryfast",
+         "-crf", "20", "-pix_fmt", "yuv420p", str(head)])
+    run([str(FFMPEG), "-y", "-v", "error", "-f", "lavfi",
+         "-i", f"color=c=white:s=640x360:d={half / 24:.3f}:r=24",
+         "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(tail)])
+    joined = destination.parent / "cut-joined.mp4"
+    run([str(FFMPEG), "-y", "-v", "error", "-i", str(head), "-i", str(tail),
+         "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0",
+         "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(joined)])
+    run([str(FFMPEG), "-y", "-v", "error", "-i", str(joined),
+         "-f", "lavfi", "-i", f"sine=frequency=440:duration={frames / 24:.3f}",
+         "-c:v", "copy", "-c:a", "aac", "-shortest", str(destination)])
+    for temporary in (head, tail, joined):
+        temporary.unlink(missing_ok=True)
+
+
+def main_config_scenarios(width: int, height: int, frames: int) -> int:
+    """The configuration surface the reference UI actually exposes."""
+    from engine.pipeline.upscale_job import upscale_with_config
+    from engine.pipeline.upscale_plan import UpscaleConfig, build_segments, detect_scene_cuts
+
+    print("2. the full upscale configuration")
+
+    preset = UpscaleConfig.from_params({"mode": "upscale_resolution", "target_preset": "1080p"})
+    result = upscale_with_config(WORK / "source.mp4", None, preset, output_dir=WORK)
+    out_w, out_h, out_frames = probe_size(Path(result["output_path"]))
+    check("target preset reaches 1080p", (out_w, out_h) == (1920, 1080), f"{out_w}x{out_h}")
+    check("preset keeps every frame", out_frames == frames, f"{out_frames} vs {frames}")
+
+    enhance = UpscaleConfig.from_params({"mode": "enhance_same_resolution", "denoise_strength": 0.3})
+    result = upscale_with_config(WORK / "source.mp4", None, enhance, output_dir=WORK)
+    out_w, out_h, out_frames = probe_size(Path(result["output_path"]))
+    check("same-resolution mode keeps the source size", (out_w, out_h) == (width, height),
+          f"{out_w}x{out_h}")
+    check("same-resolution mode keeps every frame", out_frames == frames, f"{out_frames} vs {frames}")
+    check("same-resolution mode is reported as such", result["same_resolution"] is True)
+
+    cut_source = WORK / "cuts.mp4"
+    build_cut_fixture(cut_source, WORK / "source.mp4", frames)
+    cuts = detect_scene_cuts(cut_source)
+    check("a hard cut is detected", len(cuts) >= 1, str(cuts))
+    info_duration = frames / 24
+    segments = build_segments(info_duration, cuts)
+    check("the clip splits into the detected shots", len(segments) >= 2, str(segments))
+
+    split = UpscaleConfig.from_params({
+        "mode": "upscale_resolution", "target_preset": "1080p",
+        "scene_split": "rule", "keep_audio": True,
+    })
+    result = upscale_with_config(cut_source, None, split, segments=segments, output_dir=WORK)
+    out_w, out_h, out_frames = probe_size(Path(result["output_path"]))
+    check("a split upscale keeps the frame count", out_frames == frames, f"{out_frames} vs {frames}")
+    check("a split upscale reports its segments", result["segments"] >= 2, str(result["segments"]))
+    check("audio survives by default", has_audio(Path(result["output_path"])))
+
+    silent = UpscaleConfig.from_params({
+        "mode": "upscale_resolution", "target_preset": "1080p",
+        "scene_split": "rule", "keep_audio": False,
+    })
+    result = upscale_with_config(cut_source, None, silent, segments=segments, output_dir=WORK)
+    check("keep_audio=false drops the track", not has_audio(Path(result["output_path"])))
+    return 0
 
 
 def _area_downscale(frame: np.ndarray, width: int, height: int) -> np.ndarray:

@@ -152,19 +152,33 @@ describe('wmrEngineCall', () => {
     expect(seedvr?.reason).toBeTruthy();
   });
 
-  it('maps upscale modes to the scale the engine implements', async () => {
+  it('forwards the whole upscale configuration instead of reducing it', async () => {
     const request = vi.fn(async () => ({ task_id: 'u1' }));
     const { deps: d } = deps({ request: request as unknown as WmrDeps['request'] });
 
     await wmrEngineCall(d, 'start_upscale', {
       input_path: 'C:/v.mp4',
-      config: { mode: 'enhance_same_resolution' },
+      output_dir: 'C:/out',
+      mode: 'enhance_same_resolution',
+      engine: 'realesrgan',
+      model_id: 'realesrgan_x2plus',
+      target_preset: '1080p',
+      same_res_strength: 'x2_then_downscale',
+      denoise_strength: 0.35,
+      keep_audio: false,
     });
-    expect(request).toHaveBeenCalledWith('upscale.start', expect.objectContaining({ scale: 2 }));
 
-    request.mockClear();
-    await wmrEngineCall(d, 'start_upscale', { input_path: 'C:/v.mp4', config: { mode: 'upscale_resolution' } });
-    expect(request).toHaveBeenCalledWith('upscale.start', expect.objectContaining({ scale: 4 }));
+    expect(request).toHaveBeenCalledWith('upscale.start', expect.objectContaining({
+      input_path: 'C:/v.mp4',
+      output_dir: 'C:/out',
+      mode: 'enhance_same_resolution',
+      engine: 'realesrgan',
+      model_id: 'realesrgan_x2plus',
+      target_preset: '1080p',
+      same_res_strength: 'x2_then_downscale',
+      denoise_strength: 0.35,
+      keep_audio: false,
+    }));
   });
 
   it('reports unknown methods as a value, not an exception', async () => {

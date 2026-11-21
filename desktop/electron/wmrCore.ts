@@ -314,14 +314,19 @@ export async function wmrEngineCall(
 
     case 'start_upscale': {
       const config = (payload.config as Record<string, unknown>) ?? payload;
-      const scale = String(config.mode ?? '') === 'enhance_same_resolution' ? 2 : 4;
       const started = (await deps.request('upscale.start', {
         input_path: payload.input_path,
         output_dir: payload.output_dir ? String(payload.output_dir) : undefined,
-        scale,
+        mode: config.mode ?? payload.mode,
+        engine: config.engine ?? payload.engine,
+        model_id: config.modelId ?? config.model_id ?? payload.model_id,
+        target_preset: config.targetPreset ?? config.target_preset ?? payload.target_preset,
+        same_res_strength: config.sameResStrength ?? config.same_res_strength ?? payload.same_res_strength,
+        denoise_strength: config.denoiseStrength ?? config.denoise_strength ?? payload.denoise_strength,
+        keep_audio: config.keepAudio ?? config.keep_audio ?? payload.keep_audio,
       })) as { task_id: string };
       deps.activeTask.set(started.task_id);
-      return { success: true, output_path: started && (started as Record<string, unknown>).output_path };
+      return { success: true };
     }
 
     case 'get_upscale_task_status': {
@@ -340,6 +345,12 @@ export async function wmrEngineCall(
           eta_seconds: status.eta_seconds ?? undefined,
           output_path: result.output_path,
           error: status.error,
+          mode: result.mode,
+          effective_engine: result.engine,
+          model_id: result.model_id ?? config_model(deps),
+          scene_split_mode: result.scene_split_mode ?? result.scene_split,
+          segment_index: result.segment_index ?? status.segment_index,
+          segment_total: result.segment_total ?? status.segment_total,
         },
       };
     }
@@ -356,6 +367,11 @@ export async function wmrEngineCall(
     default:
       return { success: false, error: `未实现的方法: ${method}` };
   }
+}
+
+/** The model the user picked; the engine reports what it actually ran. */
+function config_model(deps: WmrDeps): string {
+  return deps.readSettings().output.model_id;
 }
 
 function dirnameOf(target: string): string {
