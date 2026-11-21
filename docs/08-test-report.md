@@ -112,7 +112,25 @@ node scripts/e2e-desktop.mjs
 | 长时间/大分辨率视频 | 中 | 未测 4K 长片；内存与临时磁盘占用按"帧流式管道"设计，但没有实测上限 |
 
 
-## 9. 黄金样本现状
+## 9. 与参考实现的逐像素对比（原代码生成参考集）
+
+mac 黄金样本没有，但**参考实现本身可以在 Windows 上跑**：`src/core/video_processor.py`
++ `remover.py` 装上 PyTorch（复用 SeedVR2 运行时）和 `simple-lama-inpainting` 即可。
+于是可以拿同一段素材、同一份标注，跑两边，再逐帧比。
+
+`scripts/parity-removal.py`（门禁 14）实测：
+
+```
+SSIM = 0.9947   PSNR = 47.69 dB   阈值 0.98 / 40
+```
+
+差异来源是确定的：参考实现用 TorchScript 版 LaMa、本移植用 ONNX 版，两边
+推理后端不同，本来就不可能逐比特相同。
+
+**这意味着**：去水印这条主链路已经有了可重复的、对原实现的数值对比，
+不再只有"看起来差不多"。
+
+## 10. 黄金样本现状
 
 `scripts/golden.py` 已可执行手册里的流程。当前仓库里只有 **3 条合成 baseline 用例**
 （单 ROI / 越界 ROI / 竖屏带音轨），它们的作用是防退化，**不能证明与 mac 版一致**。
