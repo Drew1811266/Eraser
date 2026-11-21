@@ -81,3 +81,6 @@ desktop.config.local.*
 /pip-unpack-*/
 /pip-metadata-*/
 /CON
+
+# ---- AI coding scratch (ledger, briefs) ----
+.superpowers/
