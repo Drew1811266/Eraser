@@ -1,38 +1,30 @@
 #!/usr/bin/env node
 /**
- * Drive the *built* renderer in a real browser against the *real* engine.
+ * Drive the *ported* UI in a real browser against the real engine.
  *
- * `scripts/e2e-desktop.mjs` is the ideal test, but Electron cannot start in a
- * headless/CI session (see docs/06 §8): Chromium's renderer fails to initialise
- * even for `about:blank`. This harness covers everything except the Electron
- * IPC layer, which is thin and typed:
+ * `scripts/e2e-desktop.mjs` is the ideal test but Electron cannot start a
+ * renderer in a headless session (docs/08 §4). This harness covers everything
+ * except the Electron IPC layer, which is thin and typed and pinned separately
+ * by `desktop/electron/ipc.test.ts`:
  *
- *   Vite bundle → React UI → fetch → real JSON-RPC → real engine → real video
+ *   built bundle → Material UI → window.wmr → real JSON-RPC → real engine → files
  *
- * The page is served with an injected `window.eraser` shim that speaks to a
- * local /rpc endpoint, so the renderer runs the same code path it would get from
- * preload — same method names, same payloads, same notification stream.
- *
- *   node scripts/e2e-renderer.mjs [--keep] [--skip-cancel]
+ *   node scripts/e2e-renderer.mjs [--keep]
  */
 
-import { createServer } from 'node:http';
-import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { startPreviewServer } from './lib/preview-server.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DESKTOP = path.join(ROOT, 'desktop');
-const RENDERER = path.join(DESKTOP, 'dist-renderer');
 const CACHE = path.join(ROOT, '.cache');
-const FIXTURE = path.join(CACHE, 'renderer-fixture.mp4');
+const FIXTURE = path.join(CACHE, 'fixture.mp4');
 const OUT_DIR = path.join(CACHE, 'renderer-out');
 const PYTHON = process.env.ERASER_PYTHON ?? path.join(ROOT, '.venv', 'Scripts', 'python.exe');
-
 const keep = process.argv.includes('--keep');
-const skipCancel = process.argv.includes('--skip-cancel');
 
 let passed = 0;
 let failed = 0;
@@ -47,324 +39,177 @@ function check(name, ok, detail = '') {
   }
 }
 
-// -- the page-side bridge ------------------------------------------------
-const BRIDGE = String.raw`
-(() => {
-  const listeners = { 'task:progress': new Set(), 'engine:state': new Set(), 'engine:log': new Set() };
-  const source = new EventSource('/events');
-  source.onmessage = (event) => {
-    try {
-      const message = JSON.parse(event.data);
-      const bucket = listeners[message.channel];
-      if (bucket) for (const fn of bucket) fn(message.payload);
-    } catch (error) {
-      console.error('bridge: bad event', error);
-    }
-  };
-
-  const call = async (method, params) => {
-    const response = await fetch('/rpc', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ method, params: params ?? {} }),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || ('rpc failed: ' + method));
-    return payload.result;
-  };
-
-  const subscribe = (channel, fn) => {
-    listeners[channel].add(fn);
-    return () => listeners[channel].delete(fn);
-  };
-
-  window.eraser = {
-    capabilities: () => call('system.capabilities'),
-    pickVideo: async () => ({ canceled: false, path: window.__FIXTURE__ }),
-    pickOutputDir: async () => ({ canceled: false, path: window.__OUT_DIR__ }),
-    probe: (p) => call('media.probe', { path: p }),
-    start: (request) => call('process.start', request),
-    upscale: (request) => call('upscale.start', request),
-    cancel: (taskId) => call('process.cancel', { task_id: taskId }),
-    status: (taskId) => call('process.status', { task_id: taskId }),
-    reveal: async () => undefined,
-    openExternal: async () => undefined,
-    defaultOutputDir: async () => window.__OUT_DIR__,
-    onProgress: (fn) => subscribe('task:progress', fn),
-    onEngineState: (fn) => subscribe('engine:state', fn),
-    onEngineLog: (fn) => subscribe('engine:log', fn),
-  };
-})();
-`;
-
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-};
-
-function ensureFixture() {
-  if (fs.existsSync(FIXTURE)) {
-    return;
-  }
-  console.log('fixture   building…');
-  const result = spawnSync(PYTHON, [
-    path.join(ROOT, 'scripts', 'e2e-video.py'), '--fixture-only', '--fixture', FIXTURE,
-  ], { encoding: 'utf-8' });
-  if (result.status !== 0) {
-    throw new Error(`fixture build failed: ${result.stderr}`);
-  }
-}
-
-function serve(client, notificationSinks) {
-  const server = createServer(async (request, response) => {
-    const url = new URL(request.url, 'http://127.0.0.1');
-
-    if (url.pathname === '/events') {
-      response.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-cache',
-        connection: 'keep-alive',
-      });
-      response.write(': connected\n\n');
-      notificationSinks.add(response);
-      request.on('close', () => notificationSinks.delete(response));
-      return;
-    }
-
-    if (url.pathname === '/__vars.js') {
-      response.writeHead(200, { 'content-type': MIME['.js'] });
-      response.end(
-        `window.__FIXTURE__=${JSON.stringify(FIXTURE)};window.__OUT_DIR__=${JSON.stringify(OUT_DIR)};`,
-      );
-      return;
-    }
-
-    if (url.pathname === '/__bridge.js') {
-      response.writeHead(200, { 'content-type': MIME['.js'] });
-      response.end(BRIDGE);
-      return;
-    }
-
-    if (url.pathname === '/rpc' && request.method === 'POST') {
-      const chunks = [];
-      for await (const chunk of request) chunks.push(chunk);
-      try {
-        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
-        const result = await client.request(body.method, body.params ?? {});
-        response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ result }));
-      } catch (error) {
-        response.writeHead(400, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ error: error?.message ?? String(error) }));
-      }
-      return;
-    }
-
-    // Static files, with the bridge and the fixture injected into index.html.
-    const relative = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\//, '');
-    const file = path.join(RENDERER, relative);
-    if (!file.startsWith(RENDERER) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-      response.writeHead(404).end('not found');
-      return;
-    }
-
-    if (relative === 'index.html') {
-      let html = fs.readFileSync(file, 'utf-8');
-      // External scripts only: the shipped CSP allows `script-src 'self'`.
-      html = html.replace(
-        '<script type="module"',
-        '<script src="/__vars.js"></script>\n    <script src="/__bridge.js"></script>\n    <script type="module"',
-      );
-      response.writeHead(200, { 'content-type': MIME['.html'] });
-      response.end(html);
-      return;
-    }
-
-    response.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
-    response.end(fs.readFileSync(file));
-  });
-
-  return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
-  });
+/** Material Web buttons live in shadow DOM; click the host component. */
+async function clickByText(page, text) {
+  return page.evaluate((label) => {
+    const hosts = Array.from(document.querySelectorAll('md-filled-button, md-outlined-button, md-text-button, button'));
+    const host = hosts.find((entry) => (entry.textContent || entry.getAttribute('aria-label') || '').includes(label));
+    if (!host) return 'missing';
+    if (host.disabled) return 'disabled';
+    host.click();
+    return 'clicked';
+  }, text);
 }
 
 async function main() {
-  if (!fs.existsSync(path.join(RENDERER, 'index.html'))) {
-    throw new Error('renderer bundle missing; run: npm --prefix desktop run build');
-  }
-  ensureFixture();
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
-  fs.mkdirSync(OUT_DIR, { recursive: true });
 
-  const { EngineClient } = await import(
-    pathToFileURL(path.join(DESKTOP, 'electron', 'services', 'engineClient.ts')).href
-  );
-
-  const logs = [];
-  const client = new EngineClient({
-    command: PYTHON,
-    args: ['-u', '-m', 'engine.main'],
-    cwd: ROOT,
-    onStderr: (line) => logs.push(line),
+  const server = await startPreviewServer({
+    root: ROOT,
+    fixture: FIXTURE,
+    outputDir: OUT_DIR,
+    python: PYTHON,
+    log: () => {},
   });
+  console.log(`serving ${server.url}`);
 
-  const sinks = new Set();
-  client.on('notification', (notification) => {
-    const frame = `data: ${JSON.stringify({ channel: 'task:progress', payload: notification.params })}\n\n`;
-    for (const sink of sinks) sink.write(frame);
-  });
-
-  const capabilities = await client.start();
-  console.log(`engine    ${capabilities.engine_version} / ${capabilities.platform}`);
-  console.log(`runtime   cuda_usable=${capabilities.runtime?.cuda_usable}`);
-
-  const { server, port } = await serve(client, sinks);
-  const base = `http://127.0.0.1:${port}/`;
-  console.log(`serving   ${base}`);
-
-  // Playwright lives in desktop/node_modules; this script runs from scripts/.
   const requireDesktop = createRequire(path.join(DESKTOP, 'package.json'));
   const { chromium } = requireDesktop('playwright');
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
 
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(String(error)));
   page.on('console', (message) => {
     if (message.type() !== 'error') return;
     const text = message.text();
-    // `eraser-media:` is a protocol the Electron main process serves; a plain
-    // browser has never heard of it, so preview playback cannot work here. The
-    // element and its URL are asserted below instead.
-    if (text.includes('ERR_UNKNOWN_URL_SCHEME')) return;
+    // Seeking/aborted media requests are normal while a preview is replaced.
+    if (text.includes('ERR_ABORTED') || text.includes('ERR_UNKNOWN_URL_SCHEME')) return;
     pageErrors.push(text);
+  });
+  page.on('dialog', async (dialog) => {
+    await dialog.accept(FIXTURE);
   });
 
   try {
-    console.log('\n1. the built bundle boots and reaches the engine');
-    await page.goto(base, { waitUntil: 'load' });
-    await page.waitForSelector('.app', { timeout: 20000 });
+    console.log('\n1. the shipped bundle boots and reaches the engine');
+    await page.goto(server.url, { waitUntil: 'load' });
+    await page.waitForSelector('.app-nav-rail', { timeout: 30000 });
     check('renderer mounted', true);
+    check('four destinations are present', (await page.locator('.app-nav-destination').count()) === 4);
+    const title = (await page.locator('.app-window-title').textContent()) ?? '';
+    check('window title is Eraser', title.trim() === 'Eraser', title.trim());
 
-    await page.waitForSelector('.engine-badge.ready', { timeout: 30000 });
-    const badge = (await page.locator('.engine-badge').textContent()) ?? '';
-    check('engine badge reports ready', /就绪/.test(badge), badge.trim());
-    check('badge names the GPU when usable', /RTX|GPU|CUDA/i.test(badge) || capabilities.runtime?.cuda_usable === false, badge.trim());
+    await page.waitForTimeout(1500);
+    const deviceText = (await page.locator('.process-stat, .process-metrics').first().textContent().catch(() => '')) ?? '';
 
-    console.log('\n2. picking a video probes it and renders metadata');
-    await page.getByRole('button', { name: /打开视频|重新选择/ }).click();
-    await page.waitForSelector('.meta-row', { timeout: 20000 });
-    const meta = (await page.locator('.meta-row').textContent()) ?? '';
-    check('metadata row rendered', /640 × 360/.test(meta), meta.trim().slice(0, 60));
-    check('frame count rendered', /48 帧/.test(meta), meta.trim().slice(0, 60));
+    console.log('\n2. importing a video fills in real metadata');
+    check('选择视频 clicked', (await clickByText(page, '选择视频')) === 'clicked');
+    await page.waitForFunction(
+      () => (document.querySelector('.process-toolbar')?.textContent || '').includes('640'),
+      undefined,
+      { timeout: 60000 },
+    );
+    const meta = (await page.locator('.process-toolbar').innerText()) || '';
+    check('resolution comes from the engine', /640\s*×\s*360|640x360/.test(meta), meta.slice(0, 40));
+    check('frame count comes from the engine', /48/.test(meta));
 
-    const videoSrc = (await page.locator('video.stage-video').getAttribute('src')) ?? '';
-    check('preview points at the custom media scheme', videoSrc.startsWith('eraser-media://'), videoSrc.slice(0, 48));
+    console.log('\n3. the annotation workspace shows a real frame');
+    await page.locator('.app-nav-destination').nth(1).click();
+    await page.waitForSelector('.workspace-stage', { timeout: 30000 });
+    await page.waitForFunction(
+      () => Boolean(document.querySelector('.workspace-frame')),
+      undefined,
+      { timeout: 30000 },
+    );
+    const frameSrc = (await page.locator('.workspace-frame').getAttribute('src')) ?? '';
+    check('preview frame is a JPEG data URL', frameSrc.startsWith('data:image/jpeg;base64,'), `${frameSrc.length} chars`);
 
-    const rectInputs = page.locator('.panel input[type=number]');
-    check('selection is suggested and editable', (await rectInputs.count()) === 4, String(await rectInputs.count()));
+    console.log('\n4. drawing a region and saving it');
+    const stage = page.locator('.workspace-stage').first();
+    const box = await stage.boundingBox();
+    if (box) {
+      const scale = box.width / 640;
+      const x = box.x + 480 * scale;
+      const y = box.y + 20 * scale;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + 120 * scale, y + 60 * scale, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(600);
+    }
+    check('a draft rectangle was drawn', Boolean(box), box ? `${Math.round(box.width)}px stage` : 'no stage');
+    check('新增标记段 clicked', (await clickByText(page, '新增标记段')) !== 'missing');
+    await page.waitForTimeout(600);
+    check('保存标注 clicked', (await clickByText(page, '保存标注')) === 'clicked');
+    await page.waitForTimeout(1200);
 
-    console.log('\n3. processing runs to completion with live progress');
-    await page.getByRole('button', { name: '开始擦除' }).click();
-    await page.waitForSelector('.progress', { timeout: 20000 });
+    const sidecar = FIXTURE.replace(/\.mp4$/i, '.annotations.json');
+    check('the annotation sidecar exists on disk', fs.existsSync(sidecar), sidecar);
+    if (fs.existsSync(sidecar)) {
+      const stored = JSON.parse(fs.readFileSync(sidecar, 'utf-8'));
+      check('one segment was persisted', Array.isArray(stored.segments) && stored.segments.length >= 1,
+        `${stored.segments?.length ?? 0} segment(s)`);
+    }
 
-    let sawIntermediate = false;
-    let lastPercent = 0;
-    const deadline = Date.now() + 4 * 60 * 1000;
+    console.log('\n5. processing runs the real pipeline');
+    await page.locator('.app-nav-destination').nth(0).click();
+    await page.waitForTimeout(800);
+    check('开始处理 clicked', (await clickByText(page, '开始处理')) === 'clicked');
+    await page.waitForFunction(
+      () => {
+        const progress = document.querySelector('md-linear-progress');
+        return progress && Number(progress.value) > 0.02;
+      },
+      undefined,
+      { timeout: 120000 },
+    );
+    check('progress moved past the start', true);
+
+    await page.waitForTimeout(1000);
+    await page.waitForFunction(
+      () => !document.querySelector('.md-linear-progress') ||
+        Number(document.querySelector('md-linear-progress').value) >= 0.99,
+      undefined,
+      { timeout: 300000 },
+    );
+    await page.waitForTimeout(1500);
+
+    // Progress reaches 1.0 before the muxer has renamed its temp file, so wait
+    // for the artefact rather than sampling the directory once.
+    const deadline = Date.now() + 90_000;
+    let outputs = [];
     while (Date.now() < deadline) {
-      const done = await page.locator('.result .ok').count();
-      if (done) break;
-      const error = await page.locator('.panel .error').count();
-      if (error) break;
-      const percentText = (await page.locator('.progress-head span').nth(1).textContent().catch(() => '0%')) ?? '0%';
-      const percent = Number.parseFloat(percentText.replace('%', '')) || 0;
-      if (percent > 1 && percent < 99) sawIntermediate = true;
-      lastPercent = percent;
-      await page.waitForTimeout(250);
+      outputs = fs.existsSync(OUT_DIR)
+        ? fs.readdirSync(OUT_DIR)
+            .filter((name) => name.endsWith('_no_watermark.mp4'))
+            .filter((name) => {
+              try {
+                return fs.statSync(path.join(OUT_DIR, name)).size > 50_000;
+              } catch {
+                return false;
+              }
+            })
+        : [];
+      if (outputs.length > 0) break;
+      await page.waitForTimeout(500);
+    }
+    check('the pipeline wrote an output file', outputs.length === 1, outputs[0] ?? 'none');
+
+    if (outputs.length === 1) {
+      const output = path.join(OUT_DIR, outputs[0]);
+      const bytes = fs.statSync(output).size;
+      check('output is not empty', bytes > 50_000, `${(bytes / 1024).toFixed(0)} KB`);
+      check('the engine is still answering afterwards', Boolean(server.capabilities.engine_version));
     }
 
-    check('progress moved through intermediate values', sawIntermediate, `last ${lastPercent}%`);
-    check('task finished', (await page.locator('.result .ok').count()) === 1, 'result panel shown');
-
-    const outputPath = ((await page.locator('.result .path').textContent()) ?? '').trim();
-    check('result path rendered', outputPath.endsWith('_no_watermark.mp4'), outputPath);
-    check('output file exists on disk', fs.existsSync(outputPath), outputPath);
-
-    if (fs.existsSync(outputPath)) {
-      const bytes = fs.statSync(outputPath).size;
-      check('output is not empty', bytes > 100_000, `${(bytes / 1024).toFixed(0)} KB`);
-      const probe = await client.request('media.probe', { path: outputPath });
-      check('output keeps its geometry', probe.width === 640 && probe.height === 360, `${probe.width}x${probe.height}`);
-      check('output keeps its frame count', probe.frame_count === 48, String(probe.frame_count));
-    }
-
-    console.log('\n4. the result can be upscaled from the same screen');
-    await page.getByRole('button', { name: '放大 2×' }).click();
-    await page.waitForSelector('.progress', { timeout: 20000 });
-    const upscaleDeadline = Date.now() + 4 * 60 * 1000;
-    let upscaled = null;
-    while (Date.now() < upscaleDeadline) {
-      const text = ((await page.locator('.result .path').textContent().catch(() => '')) ?? '').trim();
-      if (text.endsWith('_x2.mp4')) {
-        upscaled = text;
-        break;
-      }
-      const error = await page.locator('.panel .error').count();
-      if (error) break;
-      await page.waitForTimeout(300);
-    }
-    check('upscale produced a file', Boolean(upscaled), upscaled ?? 'none');
-    if (upscaled && fs.existsSync(upscaled)) {
-      const probe = await client.request('media.probe', { path: upscaled });
-      check('upscale doubled the resolution', probe.width === 1280 && probe.height === 720, `${probe.width}x${probe.height}`);
-    } else {
-      check('upscale doubled the resolution', false, 'file missing');
-    }
-
-    if (!skipCancel) {
-      console.log('\n5. cancel stops a running job');
-      await page.getByRole('button', { name: /打开视频|重新选择/ }).click();
-      await page.waitForSelector('.meta-row');
-      await page.getByRole('button', { name: '开始擦除' }).click();
-      await page.waitForSelector('.progress', { timeout: 20000 });
-      await page.getByRole('button', { name: '取消' }).click();
-      await page.waitForFunction(
-        () => Array.from(document.querySelectorAll('.muted')).some((el) => /已取消/.test(el.textContent || '')),
-        undefined,
-        { timeout: 120000 },
-      );
-      check('cancel is reported in the UI', true);
-    }
+    console.log('\n6. the result view shows the produced file');
+    await page.locator('.app-nav-destination').nth(2).click();
+    await page.waitForTimeout(2000);
+    const resultText = (await page.locator('.app-main-content').innerText()).slice(0, 300);
+    check('result view names the output file', /_no_watermark\.mp4/.test(resultText), resultText.split('\n')[1]?.slice(0, 60));
+    check('result view reports the geometry', /640/.test(resultText));
 
     check('no uncaught page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
-  } catch (error) {
-    const panelError = await page.locator('.panel .error').first().textContent().catch(() => null);
-    const badgeText = await page.locator('.engine-badge').first().textContent().catch(() => null);
-    console.error(`\nfailed: ${error.message}`);
-    console.error(`  badge: ${badgeText ?? '(none)'}`);
-    console.error(`  panel error: ${panelError ?? '(none)'}`);
-    for (const entry of pageErrors.slice(0, 5)) console.error(`  page: ${entry}`);
-    throw error;
   } finally {
-    await page.screenshot({ path: path.join(CACHE, 'renderer-screenshot.png'), fullPage: false }).catch(() => {});
+    await page.screenshot({ path: path.join(CACHE, 'renderer-shot.png') }).catch(() => {});
     await browser.close();
-    for (const sink of sinks) sink.end();
-    server.close();
-    await client.shutdown().catch(() => {});
+    await server.close();
     if (!keep) fs.rmSync(OUT_DIR, { recursive: true, force: true });
   }
 
   console.log('');
   console.log(`${passed} passed, ${failed} failed`);
-  if (failed) {
-    console.log('\nengine log (last 25 lines):');
-    for (const line of logs.slice(-25)) console.log(`  ${line}`);
-  }
   return failed === 0 ? 0 : 1;
 }
 

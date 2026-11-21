@@ -19,6 +19,8 @@ export interface WmrDeps {
   writeSettings: (patch: Partial<WmrSettings>) => void;
   defaultOutputDir: () => string;
   openPath: (target: string) => Promise<void>;
+  /** The UI passes a directory here; a file path still has to work. */
+  isDirectory?: (target: string) => boolean;
   /** Delivers a progress frame to the UI (Electron: executeJavaScript). */
   pushProgress: (payload: Record<string, unknown>) => void;
   sleep?: (ms: number) => Promise<void>;
@@ -40,8 +42,8 @@ export function toEngineSegments(segments: unknown): unknown[] {
     const segment = entry as Record<string, unknown>;
     const rect = (segment.rect ?? {}) as Record<string, unknown>;
     return {
-      start_frame: Number(segment.start_frame ?? 0),
-      end_frame: Number(segment.end_frame ?? 0),
+      start_frame: Math.round(Number(segment.start_frame ?? 0)),
+      end_frame: Math.round(Number(segment.end_frame ?? 0)),
       rect: {
         x: Math.round(Number(rect.x ?? 0)),
         y: Math.round(Number(rect.y ?? 0)),
@@ -206,7 +208,8 @@ export async function wmrEngineCall(
       }
       const settings = (payload.settings as Record<string, unknown>) ?? {};
       const modelId = String(settings.model_id ?? deps.readSettings().output.model_id ?? 'lama_roi');
-      const outputDir = dirnameOf(String(payload.output_path ?? deps.defaultOutputDir()));
+      const requested = String(payload.output_path ?? deps.defaultOutputDir());
+      const outputDir = deps.isDirectory?.(requested) ? requested : dirnameOf(requested);
 
       const started = (await deps.request('process.start', {
         input_path: payload.input_path,

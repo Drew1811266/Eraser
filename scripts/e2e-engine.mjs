@@ -16,9 +16,23 @@
  */
 
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The engine needs the project venv: the system interpreter has neither
+ * onnxruntime nor opencv, and the video-backed methods import both.
+ */
+function resolvePython() {
+  if (process.env.ERASER_PYTHON) return process.env.ERASER_PYTHON;
+  const venv = path.join(here, '..', '.venv', 'Scripts', 'python.exe');
+  return fs.existsSync(venv) ? venv : 'python';
+}
+
+const PYTHON = resolvePython();
 const repoRoot = path.resolve(here, '..');
 
 const { EngineClient, EngineError } = await import(
@@ -42,7 +56,7 @@ function section(title) {
 
 function newClient(extraEnv = {}, onStderr) {
   const client = new EngineClient({
-    command: process.env.ERASER_PYTHON || 'python',
+    command: PYTHON,
     args: ['-m', 'engine.main'],
     cwd: repoRoot,
     requestTimeoutMs: 10_000,
@@ -138,6 +152,65 @@ async function main() {
   );
   check('ids generated', segments.every((s) => typeof s.id === 'string' && s.id.length === 32));
 
+
+  section('5. preview session, annotations and the model repair path');
+  // Built on demand so this script does not depend on which gate ran first.
+  const fixtureForPreview = path.join(here, '..', '.cache', 'protocol-fixture.mp4');
+  if (!fs.existsSync(fixtureForPreview)) {
+    const built = spawnSync(PYTHON, [
+      path.join(here, 'e2e-video.py'), '--fixture-only', '--fixture', fixtureForPreview,
+    ], { cwd: path.join(here, '..'), encoding: 'utf-8' });
+    if (built.status !== 0) {
+      console.error(built.stderr?.slice(-400) ?? 'fixture build failed');
+    }
+  }
+  if (fs.existsSync(fixtureForPreview)) try {
+    const session = await client.request('preview.open', { path: fixtureForPreview, max_width: 320 });
+    check('preview session opens', typeof session.session_id === 'string' && session.frame_count > 0,
+      `${session.frame_count} frames`);
+
+    const first = await client.request('preview.frame', { session_id: session.session_id, frame_index: 0 });
+    check('a frame comes back as a data URL', String(first.data_url).startsWith('data:image/jpeg;base64,'));
+    check('preview frame is scaled down', first.width <= 320, String(first.width));
+
+    const again = await client.request('preview.frame', { session_id: session.session_id, frame_index: 0 });
+    check('reading the same frame twice is stable', again.data_url === first.data_url);
+
+    await client.request('preview.close', { session_id: session.session_id });
+    const afterClose = await client.request('preview.frame', { session_id: session.session_id, frame_index: 0 })
+      .then(() => false)
+      .catch((error) => error.code === 'TASK_NOT_FOUND');
+    check('closing a session invalidates it', afterClose);
+
+    // Annotations belong next to a real video, which is also what makes the
+    // clamping honest: the geometry is known.
+    const saved = await client.request('annotation.save', {
+      video_path: fixtureForPreview,
+      segments: [{ start_frame: 0, end_frame: 10, rect: { x: 1, y: 2, width: 30, height: 40 } }],
+    });
+    check('annotations are written next to the video', fs.existsSync(saved.sidecar_path), saved.sidecar_path);
+
+    const loaded = await client.request('annotation.load', { video_path: fixtureForPreview });
+    check('they read back', loaded.exists === true && loaded.segments.length === 1);
+    check('the stored rectangle survives', loaded.segments[0].rect.width === 30);
+
+    const removed = await client.request('annotation.delete', { video_path: fixtureForPreview });
+    check('they can be deleted', removed.ok === true && !fs.existsSync(saved.sidecar_path));
+  } catch (error) {
+    check('preview and annotation methods work over the protocol', false, `${error?.code}: ${error?.message}`);
+  } else {
+    check('fixture available for preview checks', false, 'run scripts/e2e-video.py --fixture-only');
+  }
+
+  const download = await client.request('model.download.status', {});
+  check('model download reports installed models', download.installed === true, String(download.installed));
+  try {
+    await client.request('model.download.start', { model_id: 'realesrgan_general_x4v3' });
+    check('a model with no release is refused', false, 'it resolved');
+  } catch (error) {
+    check('a model with no release is refused', error.code === 'NOT_IMPLEMENTED', error.code);
+  }
+
   section('4. structured errors');
   try {
     await client.request('model.install', { model_id: 'lama_roi' });
@@ -205,7 +278,7 @@ async function main() {
   // ------------------------------------------------------------ crash handling
   section('7. a dead engine fails loudly, not silently');
   const broken = new EngineClient({
-    command: process.env.ERASER_PYTHON || 'python',
+    command: PYTHON,
     args: ['-c', 'import sys; sys.stderr.write("boom\\n"); sys.exit(3)'],
     cwd: repoRoot,
     readyTimeoutMs: 8_000,

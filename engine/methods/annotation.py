@@ -37,17 +37,26 @@ def _coerce_int(value: Any, default: int) -> int:
         return int(default)
 
 
-def _normalize_rect(rect: dict[str, Any], width: int, height: int) -> dict[str, int]:
+def _normalize_rect(
+    rect: dict[str, Any],
+    width: int,
+    height: int,
+    clamp: bool = True,
+) -> dict[str, int]:
     x = _coerce_int(rect.get("x", 0), 0)
     y = _coerce_int(rect.get("y", 0), 0)
     w = _coerce_int(rect.get("width", 0), 0)
     h = _coerce_int(rect.get("height", 0), 0)
 
-    x = max(0, min(x, max(0, width - 1)))
-    y = max(0, min(y, max(0, height - 1)))
     w = max(1, w)
     h = max(1, h)
+    if not clamp:
+        # Without the media there is nothing to clamp against; truncating to a
+        # 0-pixel canvas would silently rewrite every stored rectangle.
+        return {"x": max(0, x), "y": max(0, y), "width": w, "height": h}
 
+    x = max(0, min(x, max(0, width - 1)))
+    y = max(0, min(y, max(0, height - 1)))
     if x + w > width:
         w = max(1, width - x)
     if y + h > height:
@@ -103,7 +112,7 @@ def normalize_segments(
                 "id": str(item.get("id") or uuid4().hex),
                 "start_frame": start_frame,
                 "end_frame": end_frame,
-                "rect": _normalize_rect(rect, width, height),
+                "rect": _normalize_rect(rect, width, height, clamp=video is not None),
                 "expand_px": max(0, _coerce_int(item.get("expand_px", 5), 5)),
                 "feather_px": max(0, _coerce_int(item.get("feather_px", 3), 3)),
                 "enabled": bool(item.get("enabled", True)),

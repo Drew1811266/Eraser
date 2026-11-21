@@ -73,6 +73,18 @@ Windows 桌面应用。功能对应关系、技术选择与取舍分别记录在
 - 2× 超分结果上报成 4× 尺寸（文件本身正确）。
 - 进度回调签名不匹配导致进度条始终为 0%。
 
+### 界面（0.1.0 起为参考项目的原界面）
+
+Windows 版直接移植参考项目的 `frontend/src`（26 个文件）：左侧四个目的地
+（视频导入 / 水印打标 / 效果预览 / 视频放大）、Material 3 深色主题、打标工作台
+（帧预览 + 拖框 + 标记管理 + 逐帧/入点出点）、以及它的中英文文案。
+适配层在 `desktop/electron/wmrCore.ts`（31 个方法）与 `wmr.ts`（对话框、设置、
+把进度作为 `wmr-progress` 事件送进页面）之间。
+
+为它新增的引擎能力：`preview.open/frame/close`（ffmpeg 抽帧 + 缓存）、
+`annotation.load/save/delete`（视频旁 sidecar JSON，原子写）、
+`model.download.start/status/cancel`（带 sha256 校验的补装路径）。
+
 ### 已知限制
 
 - 无代码签名，Windows SmartScreen 会提示一次；安装说明里写了怎么继续。

@@ -166,6 +166,13 @@ export async function wmrCall(
     defaultOutputDir,
     // shell.openPath resolves with an error string; the dep is void.
     openPath: async (target) => { await shell.openPath(target); },
+    isDirectory: (target) => {
+      try {
+        return fs.statSync(target).isDirectory();
+      } catch {
+        return false;
+      }
+    },
     pushProgress: (progress) => pushProgress(window, progress),
     activeTask: {
       get: () => activeTask,
