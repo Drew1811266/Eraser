@@ -103,7 +103,7 @@ class TaskManager:
             per_item = elapsed / task.processed
             eta = round(max(0.0, per_item * (task.total - task.processed)), 1)
 
-        return {
+        snapshot: dict[str, Any] = {
             "task_id": task.task_id,
             "state": task.state,
             "phase": task.phase,
@@ -113,6 +113,14 @@ class TaskManager:
             "eta_seconds": eta,
             "message": task.message,
         }
+        # `finish()` emits its own notification, so the result has to travel with
+        # it: a shell that only learns "success" but never the path has to keep
+        # polling a task that is already over.
+        if task.result:
+            snapshot["result"] = task.result
+        if task.error:
+            snapshot["error"] = task.error
+        return snapshot
 
     # -- housekeeping ------------------------------------------------------
     def _prune(self) -> None:

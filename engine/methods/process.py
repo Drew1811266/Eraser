@@ -142,12 +142,7 @@ def register(server: RpcServer, manager: TaskManager) -> None:
         task = manager.get(task_id)
         if task is None:
             raise RpcError("TASK_NOT_FOUND", f"Unknown task: {task_id}", {"task_id": task_id})
-        snapshot = manager.snapshot(task)
-        if task.result:
-            snapshot["result"] = task.result
-        if task.error:
-            snapshot["error"] = task.error
-        return snapshot
+        return manager.snapshot(task)
 
     server.register("process.start", handle_start)
     server.register("process.cancel", handle_cancel)

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # The quality gate. Everything here must pass before a milestone is called done.
 #
-#   ./scripts/check.sh          # fast gates (~15 s): contract, units, protocol
-#   ./scripts/check.sh --full   # + real video through the whole pipeline (~40 s)
+#   ./scripts/check.sh          # fast gates (~15 s): contract, units, protocol, UI units
+#   ./scripts/check.sh --full   # + real video, real upscale, real browser UI (~2 min)
 #
-# Requires: python 3.11+, node 22.6+ (native TypeScript stripping).
+# Requires: python 3.11+, node 22.6+ (native TypeScript stripping), and for
+# --full a built desktop bundle plus Playwright's chromium
+# (`npm --prefix desktop run build && npx --prefix desktop playwright install chromium`).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,7 +30,7 @@ export ERASER_PYTHON="$PY"
 
 STEPS=4
 if [ "$FULL" = "1" ]; then
-  STEPS=6
+  STEPS=7
 fi
 
 echo "== [1/$STEPS] contract artifacts are in sync =="
@@ -54,6 +56,10 @@ if [ "$FULL" = "1" ]; then
   echo
   echo "== [6/$STEPS] Real-ESRGAN upscale =="
   "$PY" scripts/e2e-upscale.py
+
+  echo
+  echo "== [7/$STEPS] built UI in a real browser, against the real engine =="
+  node scripts/e2e-renderer.mjs
 fi
 
 echo

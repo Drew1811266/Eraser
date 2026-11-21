@@ -70,18 +70,26 @@ tests/       ✅ 99 个引擎单测 + 20 个界面单测 + 31 项协议检查 + 
 
 ```bash
 bash scripts/check.sh           # 快速门禁（约 15 秒）
-bash scripts/check.sh --full    # 追加一次真实视频处理（约 30 秒）
+bash scripts/check.sh --full    # 全部门禁，含真实推理与真实浏览器（约 2 分钟）
 node scripts/e2e-desktop.mjs    # 真实 Electron 窗口点一遍（需要交互式桌面）
 ```
 
-快速门禁依次执行：契约产物一致性 → 引擎单测 → 引擎与外壳的协议端到端 → 外壳类型检查与界面单测。
-`--full` 再加一项：用合成视频（已知水印位置的渐变画面）跑完整管线，逐帧核对水印区域已改变、
-水印颜色已消失、遮罩外像素未被破坏、分辨率/帧率/帧数未变。
+| 门禁 | 内容 | 数量 |
+|---|---|---|
+| 契约一致性 | 代码生成产物与 `contract/` 无漂移 | 1 |
+| 引擎单测 | 平台层、契约、标注、任务、分块拼接 | 113 |
+| 协议端到端 | 引擎 ↔ 外壳 JSON-RPC（噪声、崩溃、超时） | 31 |
+| 外壳类型 + 界面单测 | 状态机、进度、取消、结果、超分（jsdom） | 20 |
+| 视频端到端 | 合成水印片段 → 真实推理 → 逐帧核对 | 23 |
+| 超分端到端 | 分辨率、帧数、内容保真、锐度对比 | 5 |
+| 真实浏览器 UI | 构建产物 + 真实引擎 + 真实文件 | 18 |
 
-当前输出：**106 tests OK / 31 checks / 20 UI tests / 23 video checks / 5 upscale checks**。
+合计 **210 项**，全部通过。
 
-> `e2e-desktop.mjs` 会真的开一个 Electron 窗口、点「打开视频」、跑完一整段并读回结果。
-> 它需要交互式桌面会话；在无桌面的 CI 里 Electron 无法启动（见 `docs/06` 的环境事实）。
+> `e2e-renderer.mjs` 用 Playwright 的 chromium 加载 `desktop/dist-renderer` 的**构建产物**，
+> 把 `window.eraser` 接到真实引擎的 JSON-RPC 上，因此除了 Electron 的 IPC 层之外，
+> 整条链路都是真的。`e2e-desktop.mjs` 才是完整形态，但它需要交互式桌面：
+> 本会话的沙箱里 Electron 连 `about:blank` 都渲染不了（见 `docs/06` §8）。
 
 ## 怎么用
 

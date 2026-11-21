@@ -49,6 +49,8 @@ export interface TaskStatus {
   total?: number;
   eta_seconds?: number | null;
   message?: string;
+  result?: Record<string, never>;
+  error?: string;
 }
 
 export interface ModelEntry {

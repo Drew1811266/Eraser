@@ -70,11 +70,15 @@ export interface TaskStatus {
   total: number;
   eta_seconds: number | null;
   message: string;
+  /** Whatever the finished task produced; `output_path` is always present. */
   result?: {
     output_path: string;
-    requested_model_id: string;
-    effective_model_id: string;
-    model_warning: string;
+    requested_model_id?: string;
+    effective_model_id?: string;
+    model_warning?: string;
+    width?: number;
+    height?: number;
+    scale?: number;
   };
   error?: string;
 }

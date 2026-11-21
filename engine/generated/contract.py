@@ -161,6 +161,13 @@ _CONTRACT_JSON = r"""
         },
         "message": {
           "type": "string"
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "error": {
+          "type": "string"
         }
       },
       "required": [
