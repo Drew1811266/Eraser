@@ -36,6 +36,11 @@ from pathlib import Path
 
 import numpy as np
 
+# The console here defaults to a legacy code page; CJK assertions print names.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parent.parent
 FFMPEG = ROOT / "vendor" / "ffmpeg" / "win32-x86_64" / "ffmpeg.exe"
 FFPROBE = ROOT / "vendor" / "ffmpeg" / "win32-x86_64" / "ffprobe.exe"
@@ -353,6 +358,113 @@ def scenario_cancel(workdir: Path, python: str, source: Path) -> None:
           f"{output.stat().st_size} bytes" if output.is_file() else "absent")
 
 
+
+def scenario_errors(workdir: Path, python: str, source: Path) -> None:
+    """Bad input and awkward filenames: the boring cases that break in the field."""
+    print("7. bad input and awkward paths")
+    broken = workdir / "broken.mp4"
+    broken.write_text("this is not a video\n", encoding="utf-8")
+
+    engine = Engine(python, ROOT)
+    try:
+        rejected = False
+        detail = ""
+        try:
+            engine.request("media.probe", {"path": str(broken)}, timeout=60)
+        except RuntimeError as exc:
+            rejected = True
+            detail = str(exc)[:80]
+        check("probing a non-video fails loudly", rejected, detail)
+
+        missing = False
+        try:
+            engine.request("media.probe", {"path": str(workdir / "nope.mp4")}, timeout=30)
+        except RuntimeError:
+            missing = True
+        check("probing a missing file fails loudly", missing)
+
+        unknown = False
+        try:
+            engine.request("process.status", {"task_id": "does-not-exist"}, timeout=30)
+        except RuntimeError:
+            unknown = True
+        check("unknown task ids are rejected", unknown)
+
+        # A corrupt input must end the task, not hang it.
+        task = engine.request("process.start", {
+            "input_path": str(broken),
+            "output_dir": str(workdir / "broken-out"),
+            "segments": [{"start_frame": 0, "end_frame": 1,
+                          "rect": {"x": 10, "y": 10, "width": 20, "height": 20}}],
+        }, timeout=30)
+        status = wait_for_task(engine, task["task_id"], timeout=120)
+        check("a corrupt input fails the task instead of hanging",
+              status.get("state") == "failed", str(status.get("state")))
+        check("the failure carries a reason", bool(status.get("error")),
+              str(status.get("error"))[:80])
+
+        # Spaces, parentheses and CJK in the name: Windows paths bite here.
+        awkward = workdir / "测试 视频 (1).mp4"
+        shutil.copyfile(source, awkward)
+        output_dir = workdir / "awkward-out"
+        output_dir.mkdir(exist_ok=True)
+        task = engine.request("process.start", {
+            "input_path": str(awkward),
+            "output_dir": str(output_dir),
+            "segments": [{
+                "start_frame": 0,
+                "end_frame": 11,
+                "rect": {"x": WATERMARK[0], "y": WATERMARK[1],
+                         "width": WATERMARK[2], "height": WATERMARK[3]},
+            }],
+        }, timeout=30)
+        status = wait_for_task(engine, task["task_id"], timeout=300)
+        produced = Path(str((status.get("result") or {}).get("output_path", "")))
+        check("a CJK filename with spaces processes fine",
+              status.get("state") == "success" and produced.is_file(),
+              f"{status.get('state')} {produced.name}")
+    finally:
+        engine.close()
+
+
+def scenario_concurrent(workdir: Path, python: str, source: Path) -> None:
+    """Two jobs at once: the shell allows it, so the engine must too."""
+    print("8. two jobs at the same time")
+    output_dir = workdir / "concurrent-out"
+    output_dir.mkdir(exist_ok=True)
+
+    engine = Engine(python, ROOT)
+    try:
+        tasks = []
+        for index in range(2):
+            started = engine.request("process.start", {
+                "input_path": str(source),
+                "output_dir": str(output_dir),
+                "segments": [{
+                    "start_frame": 0 if index == 0 else 12,
+                    "end_frame": 11 if index == 0 else 23,
+                    "rect": {"x": WATERMARK[0], "y": WATERMARK[1],
+                             "width": WATERMARK[2], "height": WATERMARK[3]},
+                }],
+            }, timeout=30)
+            tasks.append(started["task_id"])
+        check("both jobs were accepted", len(set(tasks)) == 2, str(tasks)[:40])
+
+        states: list[str] = []
+        deadline = time.monotonic() + 600
+        while time.monotonic() < deadline:
+            states = []
+            for task_id in tasks:
+                status = engine.request("process.status", {"task_id": task_id}, timeout=30)
+                states.append(status.get("state"))
+            if all(state in {"success", "failed", "cancelled"} for state in states):
+                break
+            engine.pump(timeout=0.3)
+        check("both jobs finished successfully", states == ["success", "success"], str(states))
+    finally:
+        engine.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--keep", action="store_true", help="keep the work directory")
@@ -516,6 +628,10 @@ def main() -> int:
     scenario_audio(workdir, args.python)
     print()
     scenario_cancel(workdir, args.python, source)
+    print()
+    scenario_errors(workdir, args.python, source)
+    print()
+    scenario_concurrent(workdir, args.python, source)
 
     print()
     print(f"{passed} passed, {failed} failed")
