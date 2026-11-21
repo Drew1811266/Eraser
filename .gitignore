@@ -77,3 +77,6 @@ desktop.config.local.*
 /seedvr-out-*/
 /pip-build-tracker-*/
 /preview-*/
+/tmp*/
+/pip-unpack-*/
+/pip-metadata-*/
