@@ -114,6 +114,16 @@ node scripts/dev-preview.mjs          # 打开 http://127.0.0.1:5299/
 只有两处不同——原生文件对话框变成输入框（浏览器给不了真实路径），预览播放走 HTTP 而不是
 自定义协议。在没有桌面会话、或想快速验证引擎时用它。
 
+### 不安装也能跑
+
+```bash
+dist/installer/win-unpacked/Eraser.exe     # 双击即可，和安装版是同一个程序
+npm --prefix desktop start                 # 用构建产物启动
+npm --prefix desktop run dev               # 开发模式：Vite 热更新 + Electron
+```
+
+安装包做的事只是把 `win-unpacked` 复制到 `%LOCALAPPDATA%\Programs\Eraser` 并登记卸载项。
+
 ### 从源码跑桌面应用
 
 ```bash

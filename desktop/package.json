@@ -9,11 +9,12 @@
     "build:renderer": "vite build",
     "build": "npm run build:electron && npm run build:renderer",
     "dev:renderer": "vite",
-    "start": "electron .",
+    "start": "node scripts/run.mjs",
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm run test",
-    "dist": "npm run build && electron-builder --win --x64"
+    "dist": "npm run build && electron-builder --win --x64",
+    "dev": "node scripts/dev.mjs"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.2",
