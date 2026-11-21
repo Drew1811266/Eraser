@@ -30,6 +30,7 @@ Windows 桌面端视频去水印工具。基于既有 mac 项目 [Mac-Remover](h
 | [06 · 执行计划](docs/06-execution-plan.md) | M2–M6 的任务表、验收门槛与逐项进度 |
 | [07 · 安装与验收](docs/07-install-and-verify.md) | 装哪个包、怎么装、怎么确认它真的在用 GPU |
 | [变更记录](CHANGELOG.md) | 这个版本有什么、验证到什么程度、哪些没做 |
+| [08 · 测试报告](docs/08-test-report.md) | 255 项检查分别测了什么、本轮修了什么、哪些没测到 |
 | [ADR-0005 打包与 GPU](docs/adr/0005-packaging-and-gpu.md) | 为什么是 onedir，为什么出两个安装包 |
 | [ADR-0006 超分走 ONNX](docs/adr/0006-realesrgan-via-onnx.md) | 为什么不复刻参考实现的 torch 运行时 |
 
