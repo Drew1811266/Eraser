@@ -104,6 +104,16 @@ dist/installer/Eraser-Setup-GPU-0.1.0.exe   1439 MB   带 CUDA，NVIDIA 机器�
 
 双击安装即可，无需 Python / ffmpeg / CUDA 工具包。详见 [07 · 安装与验收](docs/07-install-and-verify.md)。
 
+### 在浏览器里看真实界面（无需 Electron）
+
+```bash
+node scripts/dev-preview.mjs          # 打开 http://127.0.0.1:5299/
+```
+
+这是**构建产物 + 真实引擎**：界面是发布用的那份代码，去水印、超分、取消都是真跑。
+只有两处不同——原生文件对话框变成输入框（浏览器给不了真实路径），预览播放走 HTTP 而不是
+自定义协议。在没有桌面会话、或想快速验证引擎时用它。
+
 ### 从源码跑桌面应用
 
 ```bash

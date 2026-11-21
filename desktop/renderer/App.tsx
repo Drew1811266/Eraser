@@ -23,6 +23,9 @@ export function App(): ReactElement {
   const [showLogs, setShowLogs] = useState(false);
   const [recentOutput, setRecentOutput] = useState<string>('');
   const [upscaleBusy, setUpscaleBusy] = useState(false);
+  // After a run the useful question is "did it work?", so the preview can show
+  // the produced file instead of the original.
+  const [showResult, setShowResult] = useState(false);
   const logRef = useRef<string[]>([]);
 
   const phase: Phase = status?.state === 'success' || status?.state === 'failed'
@@ -93,6 +96,7 @@ export function App(): ReactElement {
       setProbe(info);
       setStatus(null);
       setTaskId(null);
+      setShowResult(false);
       setRect(suggestRect(info));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -185,6 +189,7 @@ export function App(): ReactElement {
   useEffect(() => {
     if (status?.state === 'success' && status.result?.output_path) {
       setRecentOutput(status.result.output_path);
+      setShowResult(true);
     }
   }, [status?.state, status?.result?.output_path]);
 
@@ -224,7 +229,7 @@ export function App(): ReactElement {
       <main className="workspace">
         <section className="canvas">
           <VideoStage
-            src={filePath ? mediaUrl(filePath) : null}
+            src={showResult && recentOutput ? mediaUrl(recentOutput) : filePath ? mediaUrl(filePath) : null}
             video={probe ? { width: probe.width, height: probe.height } : { width: 16, height: 9 }}
             rect={rect}
             disabled={running}
@@ -314,6 +319,9 @@ export function App(): ReactElement {
                     <p className="ok">完成</p>
                     <p className="path" title={recentOutput}>{recentOutput}</p>
                     <div className="row">
+                      <button className="ghost" onClick={() => setShowResult((value) => !value)}>
+                        {showResult ? '看原片' : '看结果'}
+                      </button>
                       <button className="ghost" onClick={() => window.eraser.openExternal(recentOutput)}>播放</button>
                       <button className="ghost" onClick={() => window.eraser.reveal(recentOutput)}>打开所在文件夹</button>
                     </div>
