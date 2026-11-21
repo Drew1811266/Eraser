@@ -103,6 +103,15 @@ class SegmentTests(unittest.TestCase):
     def test_cuts_at_the_edges_and_duplicates_are_dropped(self) -> None:
         self.assertEqual(build_segments(5.0, [0.0, 5.0, 2.0, 2.01]), [(0.0, 2.0), (2.0, 3.0)])
 
+    def test_hybrid_cuts_long_shots_that_rule_leaves_alone(self) -> None:
+        rule = build_segments(50.0, [10.0])
+        hybrid = build_segments(50.0, [10.0], max_length=20.0)
+        self.assertEqual(rule, [(0.0, 10.0), (10.0, 40.0)])
+        self.assertEqual(hybrid, [(0.0, 10.0), (10.0, 20.0), (30.0, 20.0)])
+
+    def test_hybrid_leaves_a_short_clip_as_one_segment(self) -> None:
+        self.assertEqual(build_segments(5.0, [], max_length=20.0), [(0.0, 5.0)])
+
     def test_a_zero_length_video_is_refused(self) -> None:
         with self.assertRaises(ConfigError):
             build_segments(0.0, [])

@@ -56,6 +56,15 @@ class TaskSnapshotTests(unittest.TestCase):
         self.manager.finish(self.task, error="Cancelled")
         self.assertEqual(self.events[-1]["state"], "cancelled")
 
+    def test_segment_progress_rides_along_when_it_exists(self) -> None:
+        snapshot = self.manager.snapshot(self.task)
+        self.assertNotIn("segment_index", snapshot)
+
+        self.manager.update(self.task, segment_index=2, segment_total=5)
+        snapshot = self.manager.snapshot(self.task)
+        self.assertEqual(snapshot["segment_index"], 2)
+        self.assertEqual(snapshot["segment_total"], 5)
+
     def test_eta_needs_a_rate_to_estimate(self) -> None:
         self.assertIsNone(self.manager.snapshot(self.task)["eta_seconds"])
         self.manager.update(self.task, processed=2, total=10)

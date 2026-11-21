@@ -201,8 +201,23 @@ def detect_scene_cuts(path: str | Path, threshold: float = 0.32) -> list[float]:
     return sorted(set(cuts))
 
 
-def build_segments(duration: float, cuts: list[float]) -> list[tuple[float, float]]:
-    """Turn cut timestamps into `(start, length)` pairs covering the whole video."""
+#: Longest single segment allowed in hybrid mode. Past this the work per segment
+#: (and the memory the encoder holds) grows without anything being gained, so a
+#: long shot is cut even when the picture does not change.
+HYBRID_MAX_SECONDS = 20.0
+
+
+def build_segments(
+    duration: float,
+    cuts: list[float],
+    *,
+    max_length: float | None = None,
+) -> list[tuple[float, float]]:
+    """Turn cut timestamps into `(start, length)` pairs covering the whole video.
+
+    `max_length` is what separates hybrid mode from rule mode: rule trusts the
+    detected cuts, hybrid also cuts long shots that have none.
+    """
     if duration <= 0:
         raise ConfigError("cannot split a video with no duration")
 
@@ -211,6 +226,21 @@ def build_segments(duration: float, cuts: list[float]) -> list[tuple[float, floa
         if 0.0 < cut < duration and cut - boundaries[-1] > 0.2:
             boundaries.append(cut)
     boundaries.append(duration)
+
+    if max_length and max_length > 0:
+        forced: list[float] = [boundaries[0]]
+        for boundary in boundaries[1:]:
+            previous = forced[-1]
+            span = boundary - previous
+            if span <= max_length:
+                forced.append(boundary)
+                continue
+            pieces = int(span // max_length) + (1 if span % max_length else 0)
+            step = span / pieces
+            for index in range(1, pieces):
+                forced.append(round(previous + step * index, 3))
+            forced.append(boundary)
+        boundaries = forced
 
     segments: list[tuple[float, float]] = []
     for index in range(len(boundaries) - 1):

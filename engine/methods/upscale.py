@@ -88,14 +88,21 @@ def _run_task(
         if config.scene_split != "off":
             cuts = detect_scene_cuts(input_path)
             from engine.pipeline.watermark import VideoProcessor
+            from engine.pipeline.upscale_plan import HYBRID_MAX_SECONDS
 
             info = VideoProcessor(remover=None).get_video_info(input_path)
             duration = float(getattr(info, "duration", 0.0) or 0.0)
             if duration > 0:
-                segments = build_segments(duration, cuts)
-                # "hybrid" means: use the cuts we found, and say so — the
-                # distinction matters when a long shot produces a single piece.
-                reported_split = "rule" if len(segments) > 1 else "fallback"
+                max_length = HYBRID_MAX_SECONDS if config.scene_split == "hybrid" else None
+                segments = build_segments(duration, cuts, max_length=max_length)
+                if len(segments) <= 1:
+                    # One piece is not a split; say so instead of claiming the
+                    # mode ran when it had nothing to do.
+                    reported_split = "fallback"
+                elif len(segments) > len(cuts) + 1:
+                    reported_split = "hybrid"
+                else:
+                    reported_split = "rule"
                 logger.info("scene split: %d segment(s), mode=%s", len(segments), reported_split)
 
         result = upscale_with_config(

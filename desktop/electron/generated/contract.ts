@@ -51,6 +51,8 @@ export interface TaskStatus {
   message?: string;
   result?: Record<string, never>;
   error?: string;
+  segment_index?: number;
+  segment_total?: number;
 }
 
 export interface ModelEntry {

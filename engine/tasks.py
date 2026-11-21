@@ -30,6 +30,9 @@ class TaskRecord:
     processed: int = 0
     total: int = 0
     eta_seconds: float | None = None
+    #: Which piece of a segmented job is running, for the UI's "segment X/Y".
+    segment_index: int = 0
+    segment_total: int = 0
     message: str = ""
     error: str = ""
     result: dict[str, Any] | None = None
@@ -120,6 +123,9 @@ class TaskManager:
             snapshot["result"] = task.result
         if task.error:
             snapshot["error"] = task.error
+        if task.segment_total > 0:
+            snapshot["segment_index"] = task.segment_index
+            snapshot["segment_total"] = task.segment_total
         return snapshot
 
     # -- housekeeping ------------------------------------------------------

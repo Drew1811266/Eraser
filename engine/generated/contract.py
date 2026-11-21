@@ -169,6 +169,12 @@ _CONTRACT_JSON = r"""
         },
         "error": {
           "type": "string"
+        },
+        "segment_index": {
+          "type": "integer"
+        },
+        "segment_total": {
+          "type": "integer"
         }
       },
       "required": [
