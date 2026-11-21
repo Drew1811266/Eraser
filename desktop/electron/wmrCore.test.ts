@@ -136,20 +136,21 @@ describe('wmrEngineCall', () => {
     expect(result.error).toContain('Cannot open video');
   });
 
-  it('reports which upscale engines can actually run', async () => {
-    const { deps: d } = deps({
-      request: vi.fn(async () => ({ models: [{ engine: 'realesrgan', installed: true }] })) as unknown as WmrDeps['request'],
-    });
-
-    const capabilities = (await wmrEngineCall(d, 'get_upscale_capabilities', {})) as {
-      engines: Array<{ engine: string; available: boolean; reason?: string }>;
+  it('passes the engine capability report through unchanged', async () => {
+    const report = {
+      engines: [
+        { engine: 'realesrgan', available: true },
+        { engine: 'seedvr2', available: false, reason: 'SeedVR2 运行时未安装' },
+      ],
+      models: [],
+      modes: ['upscale_resolution', 'enhance_same_resolution'],
     };
-    const esrgan = capabilities.engines.find((entry) => entry.engine === 'realesrgan');
-    const seedvr = capabilities.engines.find((entry) => entry.engine === 'seedvr2');
+    const request = vi.fn(async () => report);
+    const { deps: d } = deps({ request: request as unknown as WmrDeps['request'] });
 
-    expect(esrgan?.available).toBe(true);
-    expect(seedvr?.available).toBe(false);
-    expect(seedvr?.reason).toBeTruthy();
+    const capabilities = (await wmrEngineCall(d, 'get_upscale_capabilities', {})) as Record<string, unknown>;
+    expect(request).toHaveBeenCalledWith('upscale.capabilities', {});
+    expect(capabilities).toMatchObject({ success: true, engines: report.engines });
   });
 
   it('forwards the whole upscale configuration instead of reducing it', async () => {

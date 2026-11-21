@@ -225,6 +225,19 @@ export interface ProcessStatusParams {
 
 export type ProcessStatusResult = TaskStatus;
 
+/** What upscaling can actually do here: engines, models, modes, and why an engine is unavailable. */
+export type UpscaleCapabilitiesParams = Record<string, never>;
+
+export interface UpscaleCapabilitiesResult {
+  engines: Record<string, never>[];
+  models: Record<string, never>[];
+  modes: string[];
+  target_presets: string[];
+  same_res_strengths: string[];
+  defaults: Record<string, never>;
+  seedvr?: Record<string, never>;
+}
+
 /** Upscale a video. Two modes: raise the resolution to a target preset, or enhance at the source resolution. Optional scene splitting, denoise and audio retention. Returns a task id; progress is streamed and the task is inspected through process.status / process.cancel. */
 export interface UpscaleStartParams {
   input_path: string;
@@ -321,6 +334,7 @@ export type MethodName =
   | "process.start"
   | "process.cancel"
   | "process.status"
+  | "upscale.capabilities"
   | "upscale.start"
   | "model.list"
   | "model.install"
@@ -345,6 +359,7 @@ export interface MethodParams {
   "process.start": ProcessStartParams;
   "process.cancel": ProcessCancelParams;
   "process.status": ProcessStatusParams;
+  "upscale.capabilities": UpscaleCapabilitiesParams;
   "upscale.start": UpscaleStartParams;
   "model.list": ModelListParams;
   "model.install": ModelInstallParams;
@@ -370,6 +385,7 @@ export interface MethodResults {
   "process.start": ProcessStartResult;
   "process.cancel": ProcessCancelResult;
   "process.status": ProcessStatusResult;
+  "upscale.capabilities": UpscaleCapabilitiesResult;
   "upscale.start": UpscaleStartResult;
   "model.list": ModelListResult;
   "model.install": ModelInstallResult;
@@ -395,6 +411,7 @@ export const IMPLEMENTED_METHODS = [
   "process.start",
   "process.cancel",
   "process.status",
+  "upscale.capabilities",
   "upscale.start",
   "model.list",
   "model.download.cancel",

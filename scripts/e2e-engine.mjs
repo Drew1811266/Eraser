@@ -211,6 +211,24 @@ async function main() {
     check('a model with no release is refused', error.code === 'NOT_IMPLEMENTED', error.code);
   }
 
+
+  section('6. upscale capabilities name their reasons');
+  const upscaling = await client.request('upscale.capabilities', {});
+  check('both engines are reported', Array.isArray(upscaling.engines) && upscaling.engines.length === 2,
+    (upscaling.engines || []).map((entry) => entry.engine).join(','));
+  const realesrgan = upscaling.engines.find((entry) => entry.engine === 'realesrgan');
+  const seedvr = upscaling.engines.find((entry) => entry.engine === 'seedvr2');
+  check('realesrgan reports its model state', typeof realesrgan.available === 'boolean');
+  check('an unavailable engine carries a reason',
+    seedvr.available === true || Boolean(seedvr.reason), String(seedvr.reason || '').slice(0, 40));
+  check('every model names its engine',
+    upscaling.models.every((entry) => entry.engine && entry.model_id));
+  check('the configuration surface is advertised',
+    upscaling.modes.includes('enhance_same_resolution')
+      && upscaling.target_presets.includes('1080p')
+      && upscaling.same_res_strengths.includes('x2_then_downscale'));
+  check('the seedvr runtime block is present', typeof upscaling.seedvr === 'object');
+
   section('4. structured errors');
   try {
     await client.request('model.install', { model_id: 'lama_roi' });

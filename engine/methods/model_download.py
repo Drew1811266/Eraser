@@ -68,6 +68,7 @@ class Downloader:
         self.received = 0
         self.total = 0
         self.error = ""
+        self.message = ""
 
     # -- status ---------------------------------------------------------
     def snapshot(self) -> dict[str, Any]:
@@ -80,10 +81,19 @@ class Downloader:
                 "received_bytes": self.received,
                 "total_bytes": self.total,
                 "error": self.error,
+                "message": self.message,
                 "installed": installed,
             }
 
     def start(self, model_id: str) -> None:
+        # SeedVR2 models are not a file in a folder: installing one also creates
+        # its PyTorch runtime, which is why it goes through its own installer.
+        from engine.pipeline.seedvr import manifest as seedvr_manifest
+
+        if model_id in seedvr_manifest.MODEL_SPECS:
+            self._start_seedvr(model_id)
+            return
+
         entry = REGISTRY.get(model_id)
         if entry is None:
             raise RpcError("INVALID_PARAMS", f"Unknown model: {model_id}", {"model_id": model_id})
@@ -118,6 +128,53 @@ class Downloader:
 
     def cancel(self) -> None:
         self._cancel.set()
+
+    # -- SeedVR2 -------------------------------------------------------
+    def _start_seedvr(self, model_id: str) -> None:
+        from engine.pipeline.seedvr import capability as seedvr_capability
+        from engine.pipeline.seedvr import manifest as seedvr_manifest
+        from engine.pipeline.seedvr.runtime import SeedVRRuntime
+
+        with self._lock:
+            if self.state == "running":
+                raise RpcError("INVALID_PARAMS", "a download is already running")
+            if seedvr_manifest.model_installed(model_id) and seedvr_capability.runtime_installed():
+                self.model_id = model_id
+                self.state = "success"
+                self.progress = 1.0
+                return
+
+            self.model_id = model_id
+            self.state = "running"
+            self.progress = 0.0
+            self.received = 0
+            self.total = seedvr_manifest.get_spec(model_id).size_bytes
+            self.error = ""
+            self._cancel.clear()
+
+        def on_progress(payload: dict[str, Any]) -> None:
+            with self._lock:
+                if "progress" in payload:
+                    self.progress = max(self.progress, min(0.99, float(payload["progress"])))
+                if payload.get("message"):
+                    self.message = str(payload["message"])
+
+        def worker() -> None:
+            runtime = SeedVRRuntime()
+            try:
+                runtime.install(model_id, progress=on_progress, cancel=self._cancel)
+                with self._lock:
+                    self.state = "success"
+                    self.progress = 1.0
+            except Exception as exc:  # noqa: BLE001 - reported through status
+                cancelled = self._cancel.is_set()
+                with self._lock:
+                    self.state = "cancelled" if cancelled else "failed"
+                    if not cancelled:
+                        self.error = str(exc)[:400]
+
+        self._thread = threading.Thread(target=worker, name="seedvr-install", daemon=True)
+        self._thread.start()
 
     # -- worker ---------------------------------------------------------
     def _run(self, entry: dict[str, Any], target: Path) -> None:
@@ -172,6 +229,10 @@ class _Cancelled(RuntimeError):
 
 
 def _is_installed(model_id: str) -> bool:
+    from engine.pipeline.seedvr import manifest as seedvr_manifest
+
+    if model_id in seedvr_manifest.MODEL_SPECS:
+        return seedvr_manifest.model_installed(model_id)
     if model_id in {"lama_roi"}:
         from engine.pipeline.remover import candidate_model_paths
 

@@ -266,50 +266,22 @@ export async function wmrEngineCall(
       await deps.request('model.download.cancel', {});
       return { success: true };
 
-    case 'get_upscale_model_download_status':
-      return { success: true, task: { state: 'idle', progress: 0, installed: true } };
+    case 'get_upscale_model_download_status': {
+      // Same installer as the import screen: a SeedVR2 model brings its runtime
+      // with it, and the UI polls one status for both.
+      const status = (await deps.request('model.download.status', {})) as Record<string, unknown>;
+      return { success: true, task: status };
+    }
     case 'start_upscale_model_download':
+      await deps.request('model.download.start', { model_id: payload.model_id });
+      return { success: true };
     case 'cancel_upscale_model_download':
+      await deps.request('model.download.cancel', {});
       return { success: true };
 
     case 'get_upscale_capabilities': {
-      const models = (await deps.request('model.list', {})) as { models: Array<Record<string, unknown>> };
-      const esrgan = models.models.find((entry) => entry.engine === 'realesrgan');
-      const installed = Boolean(esrgan?.installed);
-      return {
-        success: true,
-        engines: [
-          {
-            engine: 'realesrgan',
-            display_name: 'Real-ESRGAN',
-            available: installed,
-            reason: installed ? '' : '模型未安装',
-          },
-          {
-            engine: 'seedvr2',
-            display_name: 'SeedVR2',
-            available: false,
-            reason: 'Windows 版暂未内置 SeedVR2 运行时',
-          },
-        ],
-        models: [
-          { engine: 'realesrgan', model_id: 'realesrgan_general_x4v3', display_name: 'Real-ESRGAN x4plus', installed },
-          { engine: 'realesrgan', model_id: 'realesrgan_x2plus', display_name: 'Real-ESRGAN x4plus (2×)', installed },
-        ],
-        modes: ['upscale_resolution', 'enhance_same_resolution'],
-        target_presets: ['1080p'],
-        same_res_strengths: ['x2_then_downscale'],
-        defaults: {
-          engine: 'realesrgan',
-          mode: 'upscale_resolution',
-          model_id: 'realesrgan_general_x4v3',
-          target_preset: '1080p',
-          same_res_strength: 'x2_then_downscale',
-          denoise_strength: 0.35,
-          keep_audio: true,
-        },
-        ffmpeg: { available: true, libplacebo_available: false },
-      };
+      const capabilities = (await deps.request('upscale.capabilities', {})) as Record<string, unknown>;
+      return { success: true, ...capabilities };
     }
 
     case 'start_upscale': {

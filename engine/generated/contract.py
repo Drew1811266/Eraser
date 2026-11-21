@@ -756,6 +756,69 @@ _CONTRACT_JSON = r"""
       }
     },
     {
+      "name": "upscale.capabilities",
+      "summary": "What upscaling can actually do here: engines, models, modes, and why an engine is unavailable.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "engines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_presets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "same_res_strengths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaults": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "seedvr": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "engines",
+          "models",
+          "modes",
+          "target_presets",
+          "same_res_strengths",
+          "defaults"
+        ]
+      }
+    },
+    {
       "name": "upscale.start",
       "summary": "Upscale a video. Two modes: raise the resolution to a target preset, or enhance at the source resolution. Optional scene splitting, denoise and audio retention. Returns a task id; progress is streamed and the task is inspected through process.status / process.cancel.",
       "implemented": true,
