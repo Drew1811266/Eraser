@@ -4,6 +4,18 @@
 
 ---
 
+## 未发布 · M1 分析管线（引擎侧）
+
+- 新增 `analyze.start` / `analyze.capabilities`：分析一个视频的水印情况——镜头切点、水印数量、
+  出现区间、是否移动，并给出一条处理建议。
+- 新增 `annotation.compile`：把水印轨道摊平成现有管线消费的 `Segment[]`（含逐帧关键帧）。
+- 新增 CLI `eraser-engine analyze`：不装界面也能看到分析结果。
+- 检测器是可插拔接口；本里程碑只带脚本检测器（`ERASER_DETECT_STUB`），真实视觉模型在 M2 接入。
+- 引擎单测 174 → **244**，其中新增 41 条覆盖分析管线；`bash scripts/check.sh` 全绿。
+- 实测基线见 [docs/11-analysis-baseline.md](docs/11-analysis-baseline.md)。
+
+---
+
 ## v0.0.1 — 2026-11-21 · 首个 Windows 开发快照
 
 把只存在于 macOS 的 [Mac-Remover](https://github.com/Drew1811266/Mac-Remover) 移植成

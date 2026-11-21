@@ -387,7 +387,7 @@ class BaseInpaintEngine:
 - **硬门槛**：质量档 PSNR/SSIM 不低于 LaMa，闪烁显著更低，掩码外破坏不劣化。
 - **分析门槛**：负样本误报为 0；主用例召回 ≥ 0.9；运动判定在合成素材上必须全对。
 - **不预设立场**：若 ProPainter 的收益不足以抵消"慢 + 大运行时"，方案降级为"只做分析自动化，模型保持 LaMa"，并如实记录。
-- **产物**：`docs/11-quality-baseline.md`；7 组用例的干净原片作为 **reference 用例**加入 `golden/cases/`（仓库第一次有真值用例）。
+- **产物**：`docs/12-quality-baseline.md`；7 组用例的干净原片作为 **reference 用例**加入 `golden/cases/`（仓库第一次有真值用例）。
 
 ### 9.5 新增脚本（不改现有门禁行为）
 
@@ -413,24 +413,25 @@ class BaseInpaintEngine:
 
 ---
 
-## 11. 工作项（顺序待定）
+## 11. 工作项与状态
 
-> 顺序暂不锁定（用户尚未确认）。下面按"依赖关系"列出，不按优先级。
+> **M1（引擎侧分析管线）已执行完成**，见 [docs/10-implementation-plan.md](10-implementation-plan.md)
+> 与 [docs/11-analysis-baseline.md](11-analysis-baseline.md)。剩余工作项的顺序仍未锁定。
 
-| # | 工作项 | 依赖 |
-|---|---|---|
-| W1 | 安全网：`model_registry` / `remover` / `annotation.normalize` 的单测（当前核心零覆盖） | — |
-| W2 | 引擎抽象扩展（`kind` / `temporal` / `capabilities()`） | W1 |
-| W3 | 分析层：检测适配器（Florence-2） | W1 |
-| W4 | 分析层：跨帧关联 + 区间 + 运动判定 | W3 |
-| W5 | 水印实体与编译（`WatermarkTrack` → `Segment`，含 `keyframes`） | W4 |
-| W6 | 契约：`analyze.*` + `annotation.compile` + `Segment.keyframes` + sidecar v2 | W5 |
-| W6b | 动态掩码：把 4 处模板复制改为按 keyframes 生成，写进 `port_reference.py` 的后处理补丁 | W6 |
-| W7 | 界面：分析报告视图 | W4 |
-| W8 | 界面：时间线（泳道 + 区间 + 轨迹 + 切点） | W7 |
-| W9 | 界面：编辑栏扩展（拖区间、拆/合、删、增） | W8、W5 |
-| W10 | 质量档：ProPainter 运行时安装器 + 引擎适配器 | W2 |
-| W11 | 验证：7 组素材 + 两套指标脚本 + `docs/10` | W1（可并行） |
+| # | 工作项 | 依赖 | 状态 |
+|---|---|---|---|
+| W1 | 安全网：`model_registry` / `remover` / `annotation.normalize` 的单测 | — | 🟡 `model_registry` 已覆盖（7 条）；`remover` 与 `normalize` 仍为零覆盖 |
+| W2 | 引擎抽象扩展（`kind` / `temporal` / `capabilities()`） | W1 | ⬜ 未开始 |
+| W3 | 分析层：检测适配器 | W1 | 🟡 接口 + 脚本检测器已交付；**真实模型（Florence-2）未接** |
+| W4 | 分析层：跨帧关联 + 区间 + 运动判定 | W3 | ✅ M1（11 条测试） |
+| W5 | 水印实体与编译（`WatermarkTrack` → `Segment`，含 `keyframes`） | W4 | ✅ M1（7 条测试） |
+| W6 | 契约：`analyze.*` + `annotation.compile` + `Segment.keyframes` | W5 | ✅ M1（sidecar v2 未做，见 W9 前后决定） |
+| W6b | 动态掩码：4 处模板复制改为按 keyframes 生成，写进 `port_reference.py` 的后处理补丁 | W6 | ⬜ 未开始 |
+| W7 | 界面：分析报告视图 | W4 | ⬜ 未开始 |
+| W8 | 界面：时间线（泳道 + 区间 + 轨迹 + 切点） | W7 | ⬜ 未开始 |
+| W9 | 界面：编辑栏扩展（拖区间、拆/合、删、增） | W8、W5 | ⬜ 未开始 |
+| W10 | 质量档：ProPainter 运行时安装器 + 引擎适配器 | W2 | ⬜ 未开始 |
+| W11 | 验证：7 组素材 + 两套指标脚本 + `docs/12` | W1（可并行） | ⬜ 未开始 |
 
 ---
 
@@ -463,11 +464,12 @@ class BaseInpaintEngine:
 | D3 | 同一个水印「出现→消失→再出现」= **1 个实体 + 多段区间**（时间线一条泳道、多段亮起） | 2026-11-21 |
 | D4 | 使用形态为个人/小范围使用，不对外分发 → NC 模型可用，权重不进仓库/安装包 | 2026-11-21 |
 | D5 | 分析要回答四件事：水印数量 / 是否连贯 / 是否移动 / 镜头数量，并给处理建议 | 2026-11-21 |
+| D6 | 执行顺序：先做引擎侧分析管线（W3 接口 + W4 + W5 + W6 + CLI），再接真实检测器与界面 | 2026-11-21 |
 
 ### 待确认
 
 | # | 待确认 | 影响 |
 |---|---|---|
-| Q1 | 工作项顺序（§11）与里程碑划分 | 决定先做什么 |
+| Q1 | 下一阶段顺序：真实检测器（M2）vs 界面（M3）vs 质量档（M4） | 决定先做什么 |
 | Q2 | 目标显卡门槛（§6.3 默认分档是否可接受） | 决定质量档普及面 |
 | Q3 | 质量档是否必须"开箱可用"，还是允许"首次使用时等待安装" | 决定 UI 与安装流程 |
