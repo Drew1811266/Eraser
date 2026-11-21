@@ -107,19 +107,56 @@ def normalize_segments(
         if end_frame < start_frame:
             start_frame, end_frame = end_frame, start_frame
 
-        normalized.append(
-            {
-                "id": str(item.get("id") or uuid4().hex),
-                "start_frame": start_frame,
-                "end_frame": end_frame,
-                "rect": _normalize_rect(rect, width, height, clamp=video is not None),
-                "expand_px": max(0, _coerce_int(item.get("expand_px", 5), 5)),
-                "feather_px": max(0, _coerce_int(item.get("feather_px", 3), 3)),
-                "enabled": bool(item.get("enabled", True)),
-                "created_at": str(item.get("created_at") or timestamp),
-                "updated_at": timestamp,
-            }
-        )
+        keyframes = item.get("keyframes")
+        normalized_keyframes: list[dict[str, Any]] | None = None
+        if isinstance(keyframes, list):
+            collected: list[dict[str, Any]] = []
+            for entry in keyframes:
+                if not isinstance(entry, dict):
+                    continue
+                frame_rect = entry.get("rect")
+                if not isinstance(frame_rect, dict):
+                    continue
+                frame = _coerce_int(entry.get("frame", 0), 0)
+                if clamp_frames:
+                    frame = max(0, min(frame, max_frame))
+                else:
+                    frame = max(0, frame)
+                collected.append(
+                    {
+                        "frame": frame,
+                        "rect": _normalize_rect(
+                            frame_rect, width, height, clamp=video is not None
+                        ),
+                    }
+                )
+            collected.sort(key=lambda item_: item_["frame"])
+            # One rectangle per frame: a duplicate would leave the per-frame mask
+            # with two orders and no tie-break.
+            seen: set[int] = set()
+            normalized_keyframes = []
+            for keyframe in collected:
+                if keyframe["frame"] in seen:
+                    continue
+                seen.add(keyframe["frame"])
+                normalized_keyframes.append(keyframe)
+
+        payload = {
+            "id": str(item.get("id") or uuid4().hex),
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+            "rect": _normalize_rect(rect, width, height, clamp=video is not None),
+            "expand_px": max(0, _coerce_int(item.get("expand_px", 5), 5)),
+            "feather_px": max(0, _coerce_int(item.get("feather_px", 3), 3)),
+            "enabled": bool(item.get("enabled", True)),
+            "created_at": str(item.get("created_at") or timestamp),
+            "updated_at": timestamp,
+        }
+        # Only segments that carry a trajectory get the field: existing sidecars
+        # were written without it and must normalize to byte-identical shapes.
+        if normalized_keyframes is not None:
+            payload["keyframes"] = normalized_keyframes
+        normalized.append(payload)
 
     return normalized
 
@@ -204,6 +241,7 @@ def register(server: RpcServer, clock: Clock = _now_iso) -> None:
             shots=shots,
             frame_width=_coerce_int(video.get("width", 0), 0),
             frame_height=_coerce_int(video.get("height", 0), 0),
+            frame_count=_coerce_int(video.get("frame_count", 0), 0) or None,
         )
         return {"segments": segments}
 

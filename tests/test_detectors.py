@@ -50,6 +50,33 @@ class ScriptedDetectorTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             WatermarkDetector()  # type: ignore[abstract]
 
+    def test_zero_confidence_is_preserved(self) -> None:
+        # `confidence or 1.0` would turn a box the model was sure about *not*
+        # being a watermark into the most confident one.
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "d.json"
+            path.write_text(
+                json.dumps(
+                    {"frames": {"0": [{"x": 1, "y": 2, "width": 3, "height": 4, "confidence": 0}]}}
+                ),
+                encoding="utf-8",
+            )
+            detections = load_detections(str(path))
+        self.assertEqual(detections[0][0].confidence, 0.0)
+
+    def test_frames_must_be_a_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "d.json"
+            path.write_text(json.dumps({"frames": []}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_detections(str(path))
+
+    def test_a_broken_script_reads_as_no_detector(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            path = Path(scratch) / "d.json"
+            path.write_text(json.dumps({"frames": []}), encoding="utf-8")
+            self.assertEqual(available_detectors({"ERASER_DETECT_STUB": str(path)}), [])
+
 
 class RegistryTests(unittest.TestCase):
     def test_no_detector_by_default(self) -> None:

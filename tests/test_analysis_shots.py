@@ -31,6 +31,15 @@ class ShotTests(unittest.TestCase):
     def test_zero_length_video(self) -> None:
         self.assertEqual(build_shots([], fps=10.0, frame_count=0), [Interval(0, 0)])
 
+    def test_short_shot_is_merged_into_a_long_neighbour(self) -> None:
+        # 10 fps, 5 s: a cut half a second in is a flash, not a shot.
+        self.assertEqual(build_shots([0.5], fps=10.0, frame_count=50), [Interval(0, 49)])
+
+    def test_montage_of_short_shots_is_not_collapsed(self) -> None:
+        # Every shot is short, so the cut list is real information: reporting one
+        # shot here would answer "how many shots" wrongly.
+        self.assertEqual(len(build_shots([0.5, 1.0, 1.5], fps=10.0, frame_count=20)), 4)
+
 
 class StrategyTests(unittest.TestCase):
     @staticmethod
@@ -74,6 +83,21 @@ class StrategyTests(unittest.TestCase):
         advice = suggest_strategy([Interval(0, 99)], [self._track("moving")], engines=["lama_roi"])
         self.assertEqual(advice["engine_id"], "lama_roi")
         self.assertIn("quality_engine_unavailable", advice["warnings"])
+
+    def test_multiple_watermarks_request_the_quality_engine(self) -> None:
+        advice = suggest_strategy(
+            [Interval(0, 99)],
+            [self._track(), self._track()],
+            engines=["lama_roi", "propainter_roi"],
+        )
+        self.assertEqual(advice["engine_id"], "propainter_roi")
+        self.assertIn("multiple_watermarks", advice["warnings"])
+
+    def test_low_confidence_is_reported(self) -> None:
+        track = self._track()
+        track.confidence = 0.3
+        advice = suggest_strategy([Interval(0, 99)], [track], engines=["lama_roi"])
+        self.assertIn("low_confidence", advice["warnings"])
 
 
 if __name__ == "__main__":

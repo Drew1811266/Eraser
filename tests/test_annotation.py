@@ -122,5 +122,83 @@ class DegenerateVideoTests(unittest.TestCase):
         self.assertEqual((result[0]["start_frame"], result[0]["end_frame"]), (0, 0))
 
 
+class KeyframeTests(unittest.TestCase):
+    """A trajectory has to survive the sidecar round trip.
+
+    `annotation.save`/`load` both normalize; before this the new `keyframes`
+    field was dropped there without any error, which would have made the dynamic
+    watermark work silently lose its data between sessions.
+    """
+
+    def test_keyframes_are_kept_and_sorted(self) -> None:
+        result = normalize(
+            [
+                {
+                    "rect": {"x": 0, "y": 0, "width": 10, "height": 10},
+                    "keyframes": [
+                        {"frame": 20, "rect": {"x": 30, "y": 0, "width": 10, "height": 10}},
+                        {"frame": 5, "rect": {"x": 20, "y": 0, "width": 10, "height": 10}},
+                    ],
+                }
+            ]
+        )
+        self.assertEqual([item["frame"] for item in result[0]["keyframes"]], [5, 20])
+
+    def test_keyframe_rects_are_clamped(self) -> None:
+        result = normalize(
+            [
+                {
+                    "rect": {"x": 0, "y": 0, "width": 10, "height": 10},
+                    "keyframes": [
+                        {"frame": 1, "rect": {"x": 1900, "y": 1000, "width": 100, "height": 100}}
+                    ],
+                }
+            ]
+        )
+        self.assertEqual(
+            result[0]["keyframes"][0]["rect"], {"x": 1900, "y": 1000, "width": 20, "height": 80}
+        )
+
+    def test_keyframe_frames_are_clamped_to_the_clip(self) -> None:
+        result = normalize(
+            [
+                {
+                    "rect": {"x": 0, "y": 0, "width": 10, "height": 10},
+                    "keyframes": [{"frame": 99999, "rect": {"x": 1, "y": 1, "width": 2, "height": 2}}],
+                }
+            ]
+        )
+        self.assertEqual(result[0]["keyframes"][0]["frame"], 899)
+
+    def test_duplicate_frames_keep_one_keyframe(self) -> None:
+        result = normalize(
+            [
+                {
+                    "rect": {"x": 0, "y": 0, "width": 10, "height": 10},
+                    "keyframes": [
+                        {"frame": 3, "rect": {"x": 1, "y": 1, "width": 2, "height": 2}},
+                        {"frame": 3, "rect": {"x": 5, "y": 5, "width": 2, "height": 2}},
+                    ],
+                }
+            ]
+        )
+        self.assertEqual(len(result[0]["keyframes"]), 1)
+
+    def test_segments_without_keyframes_do_not_gain_the_field(self) -> None:
+        result = normalize([{"rect": {"x": 0, "y": 0, "width": 10, "height": 10}}])
+        self.assertNotIn("keyframes", result[0])
+
+    def test_invalid_keyframe_entries_are_dropped(self) -> None:
+        result = normalize(
+            [
+                {
+                    "rect": {"x": 0, "y": 0, "width": 10, "height": 10},
+                    "keyframes": ["nope", {"frame": 1}, {"frame": 2, "rect": {"x": 1, "y": 1, "width": 2, "height": 2}}],
+                }
+            ]
+        )
+        self.assertEqual(len(result[0]["keyframes"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

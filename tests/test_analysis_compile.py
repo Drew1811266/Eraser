@@ -92,6 +92,34 @@ class CompileTests(unittest.TestCase):
             compile_tracks([], shots=[Interval(0, 9)], frame_width=640, frame_height=360), []
         )
 
+    def test_compile_respects_frame_count(self) -> None:
+        track = _track([(0, 500)], [(0, (10, 10, 10, 10))])
+        segments = compile_tracks(
+            [track],
+            shots=[Interval(0, 500)],
+            frame_width=640,
+            frame_height=360,
+            frame_count=100,
+        )
+        self.assertEqual(segments[0]["end_frame"], 99)
+
+    def test_fallback_keyframe_is_relabelled_into_the_segment(self) -> None:
+        track = _track([(100, 200)], [(0, (10, 10, 10, 10))])
+        segments = compile_tracks(
+            [track], shots=[Interval(100, 200)], frame_width=640, frame_height=360
+        )
+        self.assertEqual(segments[0]["keyframes"][0]["frame"], 100)
+
+    def test_keyframe_rects_are_clamped_like_the_segment_rect(self) -> None:
+        track = _track([(0, 9)], [(0, (630, 350, 100, 100))])
+        segment = compile_tracks(
+            [track], shots=[Interval(0, 9)], frame_width=640, frame_height=360
+        )[0]
+        self.assertEqual(
+            segment["keyframes"][0]["rect"],
+            {"x": 630, "y": 350, "width": 10, "height": 10},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

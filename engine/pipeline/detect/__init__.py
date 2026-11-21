@@ -26,7 +26,7 @@ def available_detectors(environ: Mapping[str, str] | None = None) -> list[Waterm
     """Detectors this build can run right now.
 
     `ERASER_DETECT_STUB` is a deliberate test/demo hook — the same pattern as
-    `ERASER_STDERR_NOISE` — and is documented as such in docs/09.
+    `ERASER_STDERR_NOISE` — and is documented in docs/10-implementation-plan.md.
     """
     env = os.environ if environ is None else environ
     path = (env.get(ENV_DETECT_STUB) or "").strip()
@@ -34,5 +34,7 @@ def available_detectors(environ: Mapping[str, str] | None = None) -> list[Waterm
         return []
     try:
         return [ScriptedDetector(load_detections(path))]
-    except (OSError, ValueError):
+    except (OSError, ValueError, TypeError, AttributeError):
+        # A broken script must read as "no detector available", not as an
+        # internal error escaping through the RPC layer.
         return []

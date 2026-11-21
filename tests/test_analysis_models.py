@@ -7,11 +7,13 @@ import unittest
 from engine.pipeline.analysis import (
     Analysis,
     BBox,
+    Detection,
     Interval,
     Keyframe,
     WatermarkTrack,
     center_distance,
     iou,
+    rescale_detections,
 )
 
 
@@ -97,6 +99,30 @@ class TrackSerialisationTests(unittest.TestCase):
         self.assertEqual(payload["shots"], [{"start_frame": 0, "end_frame": 299}])
         self.assertEqual(payload["watermarks"], [])
         self.assertEqual(payload["model_id"], "stub")
+
+
+class RescaleTests(unittest.TestCase):
+    """Detections arrive in the sampled frame's space, not the source's.
+
+    `sample_frames` downscales anything wider than 1280, so a detector that saw
+    a 1280-wide image reports boxes that must be scaled before they mean
+    anything on a 1920-wide source.
+    """
+
+    def test_maps_back_to_source_pixels(self) -> None:
+        detection = Detection(0, BBox(100, 50, 40, 20), 0.9)
+        scaled = rescale_detections([detection], 1.5, 1.5)[0]
+        self.assertEqual(scaled.rect, BBox(150, 75, 60, 30))
+        self.assertEqual(scaled.frame, 0)
+        self.assertAlmostEqual(scaled.confidence, 0.9)
+
+    def test_identity_scale_is_a_no_op(self) -> None:
+        detection = Detection(7, BBox(10, 20, 30, 40), 0.5)
+        self.assertEqual(rescale_detections([detection], 1.0, 1.0), [detection])
+
+    def test_zero_scale_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            rescale_detections([], 0.0, 1.0)
 
 
 if __name__ == "__main__":

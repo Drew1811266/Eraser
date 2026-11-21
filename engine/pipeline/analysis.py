@@ -169,6 +169,40 @@ MERGE_GAP_SECONDS = 1.5
 #: Beyond this the watermark is considered to have come back as a new interval.
 REOPEN_GAP_SECONDS = 5.0
 SIZE_SIMILARITY = 0.25
+#: How far a re-appearing watermark may have travelled inside the same shot.
+#: Across a cut this is ignored: the camera moved, not the watermark.
+REOPEN_MAX_TRAVEL = 0.5
+
+
+def rescale_detections(
+    detections: list[Detection], scale_x: float, scale_y: float
+) -> list[Detection]:
+    """Map detections from a sampled frame's space back to source pixels.
+
+    `frames.sample_frames` downscales wide videos before detection runs, so a
+    detector reports boxes in the *sampled* image's coordinate system. Skipping
+    this mapping is invisible on a 640x360 clip and silently corrupt on 1080p.
+    """
+    if scale_x <= 0 or scale_y <= 0:
+        raise ValueError("scale must be positive")
+    if scale_x == 1.0 and scale_y == 1.0:
+        return list(detections)
+    scaled: list[Detection] = []
+    for item in detections:
+        rect = item.rect
+        scaled.append(
+            Detection(
+                frame=item.frame,
+                rect=BBox(
+                    x=int(round(rect.x * scale_x)),
+                    y=int(round(rect.y * scale_y)),
+                    width=max(1, int(round(rect.width * scale_x))),
+                    height=max(1, int(round(rect.height * scale_y))),
+                ),
+                confidence=item.confidence,
+            )
+        )
+    return scaled
 
 
 @dataclass
@@ -179,6 +213,14 @@ class _MutableTrack:
     confidences: list[float]
     last_frame: int
     last_rect: BBox
+    last_shot: int = -1
+
+
+def _shot_index(shots: list[Interval], frame: int) -> int:
+    for index, shot in enumerate(shots):
+        if shot.start_frame <= frame <= shot.end_frame:
+            return index
+    return -1
 
 
 def _similar_size(a: BBox, b: BBox) -> bool:
@@ -195,6 +237,38 @@ def _similar_size(a: BBox, b: BBox) -> bool:
     )
 
 
+def _match_candidate(
+    reference: BBox,
+    candidates: list[Detection],
+    used: set[int],
+    frame_width: int,
+) -> int | None:
+    """IoU first, nearest-centre second.
+
+    The second rule is what keeps small watermarks continuous: a 30 px box that
+    moves 40 px has zero overlap with its previous position, and a plain IoU
+    threshold would split it into a new watermark every sample.
+    """
+    best_index: int | None = None
+    best_iou = 0.0
+    nearest_index: int | None = None
+    nearest_distance = float("inf")
+    for index, item in enumerate(candidates):
+        if index in used:
+            continue
+        score = iou(reference, item.rect)
+        if score > best_iou:
+            best_index, best_iou = index, score
+        distance = center_distance(reference, item.rect)
+        if distance < nearest_distance:
+            nearest_index, nearest_distance = index, distance
+    if best_iou >= IOU_MATCH:
+        return best_index
+    if nearest_index is not None and nearest_distance <= 0.08 * frame_width:
+        return nearest_index
+    return None
+
+
 def associate(
     detections: dict[int, list[Detection]],
     *,
@@ -202,6 +276,7 @@ def associate(
     frame_width: int,
     frame_height: int,
     fps: float,
+    shots: list[Interval] | None = None,
     min_confidence: float = 0.35,
     max_area_ratio: float = 0.25,
     max_gap_seconds: float = REOPEN_GAP_SECONDS,
@@ -217,16 +292,22 @@ def associate(
     - gaps up to ``MERGE_GAP_SECONDS`` are missed detections (same interval);
     - gaps up to ``max_gap_seconds`` are the same watermark returning (new interval);
     - anything longer is a different watermark.
+
+    Shot boundaries come from ``shots``: a cut always starts a new interval (a
+    trajectory must never be interpolated across a scene change) while the track
+    identity is kept, because a corner logo can survive a cut.
     """
     del frame_count  # symmetry with the callers; ranges are validated by them
     frame_area = max(1, frame_width * frame_height)
     usable_gap = max(0.0, float(max_gap_seconds))
+    timeline = list(shots or [])
 
     open_tracks: list[_MutableTrack] = []
     idle_tracks: list[_MutableTrack] = []
     next_id = 1
 
     for frame in sorted(detections):
+        shot = _shot_index(timeline, frame)
         # A track unseen for longer than the merge window is no longer a
         # *continuation* candidate: it either reopens as a second interval of the
         # same watermark (inside the reopen window) or becomes a new track.
@@ -248,29 +329,42 @@ def associate(
         used: set[int] = set()
 
         for track in sorted(open_tracks, key=lambda item: item.last_frame, reverse=True):
-            index, score = _best_match(track.last_rect, candidates, used)
+            index = _match_candidate(track.last_rect, candidates, used, frame_width)
             if index is None:
                 continue
-            distance = center_distance(track.last_rect, candidates[index].rect)
-            if score < IOU_MATCH and distance > 0.08 * frame_width:
-                continue
-            _extend(track, frame, candidates[index])
+            _extend(track, frame, candidates[index], shot)
             used.add(index)
+
+        # Anything not matched in this sample becomes idle *before* creation runs,
+        # so a watermark that jumps at a cut can be re-identified in the same
+        # frame instead of being duplicated as a new track.
+        still_open = [track for track in open_tracks if track.last_frame == frame]
+        idle_tracks.extend(track for track in open_tracks if track.last_frame != frame)
+        open_tracks = still_open
 
         for index, detection in enumerate(candidates):
             if index in used:
                 continue
-            track = _reopenable(idle_tracks, detection, frame, fps, usable_gap)
+            track = _reopenable(
+                idle_tracks,
+                detection,
+                frame,
+                fps,
+                usable_gap,
+                shots=timeline,
+                frame_width=frame_width,
+            )
             if track is not None:
                 idle_tracks.remove(track)
                 gap = (frame - track.last_frame) / fps if fps > 0 else 0.0
-                if gap <= MERGE_GAP_SECONDS:
+                if shot == track.last_shot and gap <= MERGE_GAP_SECONDS:
                     track.intervals[-1] = Interval(track.intervals[-1].start_frame, frame)
                 else:
                     track.intervals.append(Interval(frame, frame))
                 track.keyframes.append(Keyframe(frame, detection.rect))
                 track.confidences.append(detection.confidence)
                 track.last_frame, track.last_rect = frame, detection.rect
+                track.last_shot = shot
                 open_tracks.append(track)
                 used.add(index)
                 continue
@@ -282,46 +376,33 @@ def associate(
                 confidences=[detection.confidence],
                 last_frame=frame,
                 last_rect=detection.rect,
+                last_shot=shot,
             )
             next_id += 1
             open_tracks.append(created)
             used.add(index)
 
-        still_open: list[_MutableTrack] = []
-        for track in open_tracks:
-            if track.last_frame == frame:
-                still_open.append(track)
-            else:
-                idle_tracks.append(track)
-        open_tracks = still_open
-
     idle_tracks.extend(open_tracks)
     tracks = [_finalise(item, frame_width, frame_height) for item in idle_tracks]
     tracks.sort(key=lambda item: (item.intervals[0].start_frame, item.id))
-    return tracks[: max(0, int(max_tracks))]
+    cap = max(0, int(max_tracks))
+    if len(tracks) > cap:
+        # Keep the most confident when there are too many, but preserve
+        # chronological order in the result: the timeline reads left to right.
+        keep = {id(item) for item in sorted(tracks, key=lambda item: item.confidence, reverse=True)[:cap]}
+        tracks = [item for item in tracks if id(item) in keep]
+    return tracks
 
 
-def _best_match(
-    reference: BBox,
-    candidates: list[Detection],
-    used: set[int],
-) -> tuple[int | None, float]:
-    best_index: int | None = None
-    best_score = 0.0
-    for index, item in enumerate(candidates):
-        if index in used:
-            continue
-        score = iou(reference, item.rect)
-        if score > best_score:
-            best_index, best_score = index, score
-    return best_index, best_score
-
-
-def _extend(track: _MutableTrack, frame: int, detection: Detection) -> None:
-    track.intervals[-1] = Interval(track.intervals[-1].start_frame, frame)
+def _extend(track: _MutableTrack, frame: int, detection: Detection, shot: int) -> None:
+    if shot != track.last_shot:
+        track.intervals.append(Interval(frame, frame))
+    else:
+        track.intervals[-1] = Interval(track.intervals[-1].start_frame, frame)
     track.keyframes.append(Keyframe(frame, detection.rect))
     track.confidences.append(detection.confidence)
     track.last_frame, track.last_rect = frame, detection.rect
+    track.last_shot = shot
 
 
 def _reopenable(
@@ -330,18 +411,46 @@ def _reopenable(
     frame: int,
     fps: float,
     max_gap_seconds: float,
+    *,
+    shots: list[Interval],
+    frame_width: int,
 ) -> _MutableTrack | None:
+    """Pick the idle track this detection most plausibly belongs to.
+
+    Position is part of the score, not just size: two similar watermarks that
+    both miss one sample would otherwise swap identities. Across a cut position
+    carries no information, so only size and gap are used there.
+    """
+    shot = _shot_index(shots, frame)
     best: _MutableTrack | None = None
-    best_gap = float("inf")
+    best_score = float("inf")
     for track in idle:
         gap = (frame - track.last_frame) / fps if fps > 0 else float("inf")
         if gap < 0 or gap > max_gap_seconds:
             continue
         if not _similar_size(track.last_rect, detection.rect):
             continue
-        if gap < best_gap:
-            best, best_gap = track, gap
+        distance = center_distance(track.last_rect, detection.rect)
+        if shot == track.last_shot and distance > REOPEN_MAX_TRAVEL * frame_width:
+            continue
+        score = gap / max(1e-6, max_gap_seconds) + distance / max(1, frame_width)
+        if score < best_score:
+            best, best_score = track, score
     return best
+
+
+def _group_moves(keyframes: list[Keyframe], frame_width: int, frame_height: int) -> bool:
+    if len(keyframes) < 2:
+        return False
+    centers = [item.rect.center for item in keyframes]
+    xs = [point[0] for point in centers]
+    ys = [point[1] for point in centers]
+    dx = max(xs) - min(xs)
+    dy = max(ys) - min(ys)
+    widths = [max(1, item.rect.width) for item in keyframes]
+    heights = [max(1, item.rect.height) for item in keyframes]
+    grows = max(max(widths) / min(widths), max(heights) / min(heights))
+    return dx > 0.05 * frame_width or dy > 0.05 * frame_height or grows > 1.15
 
 
 def _finalise(track: _MutableTrack, frame_width: int, frame_height: int) -> WatermarkTrack:
@@ -353,30 +462,81 @@ def _finalise(track: _MutableTrack, frame_width: int, frame_height: int) -> Wate
         confidence=confidence,
     )
     result.motion = classify_motion(result, frame_width=frame_width, frame_height=frame_height)
+    if result.motion == "static" and len(result.keyframes) > 1:
+        # A static watermark has exactly one rectangle; repeating it per sample
+        # bloats the payload and gives the future per-frame mask nothing extra.
+        result.keyframes = result.keyframes[:1]
     return result
 
 
 def classify_motion(track: WatermarkTrack, *, frame_width: int, frame_height: int) -> str:
-    """`moving` when the box travels or changes size appreciably."""
+    """`moving` when the box travels or changes size appreciably.
+
+    Measured per interval: a logo that survives a cut at a different screen
+    position was not "moving", the camera moved.
+    """
     if len(track.keyframes) < 2:
         return "static"
-    centers = [item.rect.center for item in track.keyframes]
-    xs = [point[0] for point in centers]
-    ys = [point[1] for point in centers]
-    dx = max(xs) - min(xs)
-    dy = max(ys) - min(ys)
-    widths = [max(1, item.rect.width) for item in track.keyframes]
-    heights = [max(1, item.rect.height) for item in track.keyframes]
-    grows = max(max(widths) / min(widths), max(heights) / min(heights))
-    if dx > 0.05 * frame_width or dy > 0.05 * frame_height:
-        return "moving"
-    if grows > 1.15:
+    groups: list[list[Keyframe]] = []
+    for interval in track.intervals or [None]:  # type: ignore[list-item]
+        inside = [
+            item
+            for item in track.keyframes
+            if interval is None
+            or interval.start_frame <= item.frame <= interval.end_frame
+        ]
+        if inside:
+            groups.append(inside)
+    if not groups:
+        groups = [track.keyframes]
+    if any(_group_moves(group, frame_width, frame_height) for group in groups):
         return "moving"
     return "static"
 
 
 ENGINE_FAST = "lama_roi"
 ENGINE_QUALITY = "propainter_roi"
+MIN_SHOT_SECONDS = 1.2
+SECOND_MERGE_SECONDS = 2.0
+
+
+def _merge_short_shots(shots: list[Interval], minimum_seconds: float, fps: float) -> list[Interval]:
+    """Fold a flash cut into a neighbour, but never collapse a montage.
+
+    A shot shorter than the threshold is merged into a neighbour *that is long
+    enough to absorb it*. When every shot is short (a montage, a title sequence)
+    the cut list is real information and collapsing it into one shot would give
+    the wrong answer to "how many shots does this have".
+    """
+    if fps <= 0 or len(shots) < 2:
+        return shots
+
+    merged = list(shots)
+    changed = True
+    while changed and len(merged) > 1:
+        changed = False
+        for index, shot in enumerate(merged):
+            length = (shot.end_frame - shot.start_frame + 1) / fps
+            if length >= minimum_seconds:
+                continue
+            prev_shot = merged[index - 1] if index > 0 else None
+            next_shot = merged[index + 1] if index + 1 < len(merged) else None
+
+            def long_enough(candidate: Interval | None) -> bool:
+                if candidate is None:
+                    return False
+                return (candidate.end_frame - candidate.start_frame + 1) / fps >= minimum_seconds
+
+            if long_enough(prev_shot):
+                merged[index - 1] = Interval(prev_shot.start_frame, shot.end_frame)  # type: ignore[union-attr]
+            elif long_enough(next_shot):
+                merged[index + 1] = Interval(shot.start_frame, next_shot.end_frame)  # type: ignore[union-attr]
+            else:
+                continue
+            merged.pop(index)
+            changed = True
+            break
+    return merged
 
 
 def build_shots(cuts: list[float], *, fps: float, frame_count: int) -> list[Interval]:
@@ -409,6 +569,8 @@ def build_shots(cuts: list[float], *, fps: float, frame_count: int) -> list[Inte
         end = boundaries[index + 1] - 1
         if end >= start:
             shots.append(Interval(start, end))
+    shots = _merge_short_shots(shots, MIN_SHOT_SECONDS, fps)
+    shots = _merge_short_shots(shots, SECOND_MERGE_SECONDS, fps)
     return shots or [Interval(0, 0)]
 
 
@@ -428,10 +590,15 @@ def suggest_strategy(
 
     moves = any(item.motion == "moving" for item in watermarks)
     multi_shot = len(shots) > 1
+    multiple_marks = len(watermarks) > 1
     if moves:
         warnings.append("moving_watermark")
+    if multiple_marks:
+        warnings.append("multiple_watermarks")
+    if any(item.confidence < 0.5 for item in watermarks):
+        warnings.append("low_confidence")
 
-    wants_quality = moves or multi_shot
+    wants_quality = moves or multi_shot or multiple_marks
     engine = ENGINE_FAST
     if wants_quality:
         if ENGINE_QUALITY in available:
@@ -448,6 +615,7 @@ def compile_tracks(
     shots: list[Interval],
     frame_width: int,
     frame_height: int,
+    frame_count: int | None = None,
     expand_px: int = 5,
     feather_px: int = 3,
 ) -> list[dict[str, Any]]:
@@ -460,12 +628,19 @@ def compile_tracks(
     The ROI is the union of the keyframes inside the range, so a moving watermark
     keeps a *stable* crop while its per-frame mask moves — stable crops are what
     the flow-propagation engines want.
+
+    `frame_count` is honoured when given: a hand-edited track can name frames the
+    video does not have, and `process.start` does not normalise segments again.
     """
+    last_frame = None if frame_count is None else max(0, int(frame_count) - 1)
+
     if not shots:
         last_end = max(
             (item.intervals[-1].end_frame for item in tracks if item.intervals),
             default=0,
         )
+        if last_frame is not None:
+            last_end = min(last_end, last_frame)
         shots = [Interval(0, max(0, last_end))]
 
     segments: list[dict[str, Any]] = []
@@ -474,15 +649,24 @@ def compile_tracks(
             for shot in shots:
                 start = max(interval.start_frame, shot.start_frame)
                 end = min(interval.end_frame, shot.end_frame)
+                if last_frame is not None:
+                    start = min(start, last_frame)
+                    end = min(end, last_frame)
                 if end < start:
                     continue
 
                 inside = [item for item in track.keyframes if start <= item.frame <= end]
                 if not inside:
                     before = [item for item in track.keyframes if item.frame <= end]
-                    inside = before[-1:] or track.keyframes[:1]
-                if not inside:
-                    continue
+                    chosen = before[-1] if before else (
+                        track.keyframes[0] if track.keyframes else None
+                    )
+                    if chosen is None:
+                        continue
+                    # The fallback rectangle belongs to the range it is used in:
+                    # re-labelling its frame is what keeps the compiled segment
+                    # self-consistent for the per-frame mask.
+                    inside = [Keyframe(min(max(chosen.frame, start), end), chosen.rect)]
 
                 rect = BBox.union([item.rect for item in inside]).clamp(
                     frame_width, frame_height
@@ -497,7 +681,10 @@ def compile_tracks(
                         "feather_px": int(feather_px),
                         "enabled": True,
                         "keyframes": [
-                            {"frame": int(item.frame), "rect": item.rect.as_dict()}
+                            {
+                                "frame": int(item.frame),
+                                "rect": item.rect.clamp(frame_width, frame_height).as_dict(),
+                            }
                             for item in inside
                         ],
                     }

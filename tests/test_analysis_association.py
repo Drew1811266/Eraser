@@ -7,9 +7,11 @@ import unittest
 from engine.pipeline.analysis import (
     BBox,
     Detection,
+    Interval,
     WatermarkTrack,
     associate,
     classify_motion,
+    compile_tracks,
 )
 
 W, H, FPS = 640, 360, 30.0
@@ -32,7 +34,9 @@ class ContinuationTests(unittest.TestCase):
         self.assertEqual(len(tracks), 1)
         self.assertEqual(tracks[0].intervals[0].start_frame, 0)
         self.assertEqual(tracks[0].intervals[0].end_frame, 30)
-        self.assertEqual(len(tracks[0].keyframes), 3)
+        # A static watermark carries one representative rectangle (spec §5.1),
+        # not one per sampled frame.
+        self.assertEqual(len(tracks[0].keyframes), 1)
 
     def test_slow_motion_still_continues(self) -> None:
         tracks = _run({frame: [_det(frame, 100 + frame // 2)] for frame in (0, 15, 30)})
@@ -71,9 +75,16 @@ class SeparationTests(unittest.TestCase):
         detections = {0: [Detection(0, BBox(0, 0, W, H), 0.99)]}
         self.assertEqual(_run(detections), [])
 
-    def test_track_cap_is_enforced(self) -> None:
-        detections = {0: [_det(0, 10 + index * 100) for index in range(12)]}
-        self.assertEqual(len(_run(detections)), 8)
+    def test_track_cap_keeps_the_most_confident(self) -> None:
+        weak = [Detection(0, BBox(100 + index * 40, 20, 30, 40), 0.4) for index in range(11)]
+        loud = Detection(0, BBox(20, 20, 30, 40), 0.99)
+        tracks = _run({0: weak + [loud]})
+        self.assertEqual(len(tracks), 8)
+        self.assertIn(
+            20,
+            {track.keyframes[0].rect.x for track in tracks},
+            "the most confident detection must survive the cap",
+        )
 
 
 class MotionTests(unittest.TestCase):
@@ -86,6 +97,65 @@ class MotionTests(unittest.TestCase):
         # this is one track — and past the 5%-of-width motion threshold (32 px).
         track = _run({0: [_det(0, 100)], 15: [_det(15, 140)]})[0]
         self.assertEqual(classify_motion(track, frame_width=W, frame_height=H), "moving")
+
+
+class DistanceFallbackTests(unittest.TestCase):
+    def test_small_box_without_overlap_still_continues(self) -> None:
+        # A 30 px box moving 40 px: zero IoU with the previous sample, but well
+        # inside the 8%-of-width association window. The fallback must fire when
+        # *no* candidate overlaps, which is the small-watermark case.
+        detections = {
+            0: [Detection(0, BBox(100, 20, 30, 30), 0.9)],
+            15: [Detection(15, BBox(140, 20, 30, 30), 0.9)],
+        }
+        tracks = _run(detections)
+        self.assertEqual(len(tracks), 1)
+        self.assertEqual(tracks[0].motion, "moving")
+
+
+class ReopenIdentityTests(unittest.TestCase):
+    def test_two_watermarks_keep_their_identity_after_a_shared_miss(self) -> None:
+        detections = {
+            0: [
+                Detection(0, BBox(40, 20, 80, 40), 0.9),
+                Detection(0, BBox(200, 20, 80, 40), 0.9),
+            ],
+            15: [],
+            # Detection order is reversed on purpose: identity must come from
+            # position, not from the order a detector happened to emit.
+            30: [
+                Detection(30, BBox(200, 20, 80, 40), 0.9),
+                Detection(30, BBox(40, 20, 80, 40), 0.9),
+            ],
+        }
+        tracks = _run(detections)
+        self.assertEqual(len(tracks), 2)
+        segments = compile_tracks(
+            tracks, shots=[Interval(0, 30)], frame_width=W, frame_height=H
+        )
+        self.assertEqual(sorted(segment["rect"]["x"] for segment in segments), [40, 200])
+
+
+class ShotBoundaryTests(unittest.TestCase):
+    def test_cut_starts_a_new_interval_but_keeps_the_track(self) -> None:
+        shots = [Interval(0, 14), Interval(15, 44)]
+        detections = {frame: [_det(frame, 100)] for frame in (0, 15, 30)}
+        tracks = _run(detections, shots=shots)
+        self.assertEqual(len(tracks), 1, "a cut must not create a second watermark")
+        self.assertEqual(len(tracks[0].intervals), 2)
+
+    def test_motion_is_measured_per_interval_not_across_the_cut(self) -> None:
+        # The same logo sits at 500 in shot 1 and at 100 in shot 2. Comparing
+        # the two positions would call it moving; each shot is static.
+        shots = [Interval(0, 14), Interval(15, 44)]
+        detections = {
+            0: [Detection(0, BBox(500, 20, 60, 40), 0.9)],
+            15: [Detection(15, BBox(100, 20, 60, 40), 0.9)],
+            30: [Detection(30, BBox(100, 20, 60, 40), 0.9)],
+        }
+        tracks = _run(detections, shots=shots)
+        self.assertEqual(len(tracks), 1)
+        self.assertEqual(tracks[0].motion, "static")
 
 
 if __name__ == "__main__":

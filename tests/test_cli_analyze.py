@@ -6,7 +6,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -60,6 +60,18 @@ class CommandTests(unittest.TestCase):
                     )
         self.assertEqual(code, 0)
         self.assertIn('"watermarks"', buffer.getvalue())
+
+    def test_unreadable_video_reports_a_structured_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            video = Path(scratch) / "broken.mp4"
+            video.write_bytes(b"not a video")
+            script = Path(scratch) / "d.json"
+            script.write_text('{"frames": {}}', encoding="utf-8")
+            buffer = io.StringIO()
+            with redirect_stdout(buffer), redirect_stderr(buffer):
+                code = cli.main(["analyze", str(video), "--detections", str(script)])
+        self.assertEqual(code, 1)
+        self.assertIn("analysis failed", buffer.getvalue())
 
 
 if __name__ == "__main__":

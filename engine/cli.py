@@ -275,7 +275,7 @@ def command_analyze(args: argparse.Namespace) -> int:
 
     try:
         payload = _analyze(args)
-    except AnalysisError as exc:
+    except (AnalysisError, ValueError, OSError) as exc:
         print(f"analysis failed: {exc}", file=sys.stderr)
         return 1
 

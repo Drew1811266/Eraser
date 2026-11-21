@@ -7,6 +7,7 @@ diverging) in two places.
 
 from __future__ import annotations
 
+import math
 import time
 from typing import Any, Callable
 
@@ -15,10 +16,11 @@ from engine.pipeline.analysis import (
     Detection,
     associate,
     build_shots,
+    rescale_detections,
     suggest_strategy,
 )
 from engine.pipeline.detect.base import WatermarkDetector
-from engine.pipeline.frames import FrameSamplingError, sample_frames
+from engine.pipeline.frames import MAX_SAMPLES, FrameSamplingError, sample_frames
 from engine.pipeline.logging import logger
 from engine.pipeline.upscale_plan import detect_scene_cuts
 
@@ -28,6 +30,9 @@ DEFAULT_SAMPLE_STEP = 15
 DEFAULT_MAX_TRACKS = 8
 DEFAULT_MIN_CONFIDENCE = 0.35
 ANALYSIS_MAX_WIDTH = 1280
+#: Cut frames are extra seeks on top of the uniform grid; a generous ceiling
+#: keeps a pathological cut list from turning into thousands of subprocesses.
+MAX_EXTRA_FRAMES = 64
 
 
 class AnalysisError(RuntimeError):
@@ -60,26 +65,40 @@ def run_analysis(
                 logger.debug("dropping analysis progress event: %s", exc)
 
     emit(phase="probe", progress=0.02, message="Reading video")
-    info = VideoProcessor(remover=None).get_video_info(input_path)
+    try:
+        info = VideoProcessor(remover=None).get_video_info(input_path)
+    except Exception as exc:  # noqa: BLE001 - the decoder's errors are not ours
+        raise AnalysisError(f"cannot read video: {exc}") from exc
     frame_count = int(info.frame_count)
     if frame_count <= 0:
         raise AnalysisError("the clip reports no frames")
 
     emit(phase="shots", progress=0.08, message="Finding shot boundaries")
     cuts = detect_scene_cuts(input_path)
-    shots = build_shots(cuts, fps=float(info.fps), frame_count=frame_count)
+    fps = float(info.fps)
+    shots = build_shots(cuts, fps=fps, frame_count=frame_count)
+    # A short shot can fall entirely between two grid samples; the frames a cut
+    # lands on are extracted on top of the grid for exactly that reason.
+    cut_frames = [int(round(cut * fps)) for cut in cuts][:MAX_EXTRA_FRAMES]
     emit(phase="shots", progress=0.15, message=f"{len(shots)} shot(s)")
 
     if cancel is not None and cancel.is_set():
         raise AnalysisError("cancelled")
 
     emit(phase="sample", progress=0.2, message="Sampling frames")
+    # Raise the step instead of refusing the clip: a 4-minute video would
+    # otherwise hold gigabytes of decoded frames at once.
+    effective_step = max(2, int(sample_step), math.ceil(frame_count / MAX_SAMPLES))
     try:
         frames = sample_frames(
             input_path,
-            step=max(2, int(sample_step)),
+            step=effective_step,
             source_width=int(info.width),
+            source_height=int(info.height),
             max_width=ANALYSIS_MAX_WIDTH,
+            fps=fps,
+            extra_frames=cut_frames,
+            max_samples=MAX_SAMPLES + MAX_EXTRA_FRAMES,
         )
     except FrameSamplingError as exc:
         raise AnalysisError(f"cannot sample frames: {exc}") from exc
@@ -90,7 +109,13 @@ def run_analysis(
     for position, (frame_index, image) in enumerate(frames, start=1):
         if cancel is not None and cancel.is_set():
             raise AnalysisError("cancelled")
-        detections[frame_index] = detector.detect(image, frame_index)
+        raw = detector.detect(image, frame_index)
+        # The detector saw the (possibly downscaled) sample, so its boxes are in
+        # that image's space until they are mapped back to source pixels.
+        height, width = image.shape[:2]
+        scale_x = info.width / width if width else 1.0
+        scale_y = info.height / height if height else 1.0
+        detections[frame_index] = rescale_detections(raw, scale_x, scale_y)
         if position == total or position % 5 == 0:
             emit(
                 phase="detect",
@@ -104,7 +129,8 @@ def run_analysis(
         frame_count=frame_count,
         frame_width=int(info.width),
         frame_height=int(info.height),
-        fps=float(info.fps),
+        fps=fps,
+        shots=shots,
         max_tracks=max(1, int(max_tracks)),
         min_confidence=float(min_confidence),
     )

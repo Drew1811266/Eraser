@@ -9,11 +9,22 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from engine.pipeline.analysis import BBox, Detection
 from engine.pipeline.detect.base import WatermarkDetector
+
+
+def _confidence(raw: Any) -> float:
+    """`0` is a real confidence and must not be promoted by `or`."""
+    if raw is None:
+        return 1.0
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 1.0
 
 
 def load_detections(path: str) -> dict[int, list[Detection]]:
@@ -22,20 +33,24 @@ def load_detections(path: str) -> dict[int, list[Detection]]:
         raise FileNotFoundError(f"detection script not found: {path}")
     payload = json.loads(file.read_text(encoding="utf-8"))
     raw_frames = payload.get("frames", payload) if isinstance(payload, dict) else {}
+    if not isinstance(raw_frames, dict):
+        raise ValueError("detection script must map frame numbers to boxes")
     detections: dict[int, list[Detection]] = {}
     for key, entries in raw_frames.items():
         try:
             frame_index = int(key)
         except (TypeError, ValueError):
             continue
+        if not isinstance(entries, list):
+            continue
         items: list[Detection] = []
-        for entry in entries or []:
+        for entry in entries:
             data = entry if isinstance(entry, dict) else {}
             items.append(
                 Detection(
                     frame=frame_index,
                     rect=BBox.from_dict(data),
-                    confidence=float(data.get("confidence", 1.0) or 1.0),
+                    confidence=_confidence(data.get("confidence")),
                 )
             )
         if items:
