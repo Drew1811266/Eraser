@@ -76,6 +76,12 @@ def ts_type(schema: dict[str, Any]) -> str:
     if raw_type == "object":
         props: dict[str, Any] = schema.get("properties") or {}
         if not props:
+            # `Record<string, never>` means "no keys allowed", which is not what
+            # a free-form payload is. Task results (process/upscale/analyze) ride
+            # through `TaskStatus.result` and the shell must be able to read
+            # typed fields out of them.
+            if schema.get("additionalProperties", True) is not False:
+                return "Record<string, unknown>"
             return "Record<string, never>"
         required = set(schema.get("required") or [])
         lines: list[str] = []

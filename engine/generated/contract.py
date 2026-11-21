@@ -198,6 +198,96 @@ _CONTRACT_JSON = r"""
         "available"
       ]
     },
+    "AnalysisVideo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "frame_count": {
+          "type": "integer"
+        },
+        "duration_seconds": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "fps",
+        "frame_count",
+        "duration_seconds"
+      ]
+    },
+    "SuggestedStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "engine_id": {
+          "type": "string"
+        },
+        "split_by_shot": {
+          "type": "boolean"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "engine_id",
+        "split_by_shot",
+        "warnings"
+      ]
+    },
+    "Analysis": {
+      "type": "object",
+      "description": "Payload of a successful analyze task, delivered through TaskStatus.result.",
+      "additionalProperties": false,
+      "properties": {
+        "video": {
+          "$ref": "#/types/AnalysisVideo"
+        },
+        "shots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/types/FrameInterval"
+          }
+        },
+        "watermarks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/types/WatermarkTrack"
+          }
+        },
+        "suggested": {
+          "$ref": "#/types/SuggestedStrategy"
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "elapsed_ms": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "video",
+        "shots",
+        "watermarks",
+        "suggested",
+        "model_id",
+        "elapsed_ms"
+      ]
+    },
     "MediaInfo": {
       "type": "object",
       "properties": {
@@ -1393,6 +1483,18 @@ _CONTRACT_JSON = r"""
       "jsonrpc": -32005,
       "retryable": true,
       "message_key": "err.cancelled"
+    },
+    {
+      "code": "DETECTOR_MISSING",
+      "jsonrpc": -32006,
+      "retryable": true,
+      "message_key": "err.detector_missing"
+    },
+    {
+      "code": "DETECTOR_FAILED",
+      "jsonrpc": -32007,
+      "retryable": true,
+      "message_key": "err.detector_failed"
     }
   ]
 }

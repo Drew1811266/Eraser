@@ -57,6 +57,29 @@ export interface DetectorEntry {
   blocked_reason?: string;
 }
 
+export interface AnalysisVideo {
+  width: number;
+  height: number;
+  fps: number;
+  frame_count: number;
+  duration_seconds: number;
+}
+
+export interface SuggestedStrategy {
+  engine_id: string;
+  split_by_shot: boolean;
+  warnings: string[];
+}
+
+export interface Analysis {
+  video: AnalysisVideo;
+  shots: FrameInterval[];
+  watermarks: WatermarkTrack[];
+  suggested: SuggestedStrategy;
+  model_id: string;
+  elapsed_ms: number;
+}
+
 export interface MediaInfo {
   path: string;
   width: number;
@@ -78,7 +101,7 @@ export interface TaskStatus {
   total?: number;
   eta_seconds?: number | null;
   message?: string;
-  result?: Record<string, never>;
+  result?: Record<string, unknown>;
   error?: string;
   segment_index?: number;
   segment_total?: number;
@@ -258,13 +281,13 @@ export type ProcessStatusResult = TaskStatus;
 export type UpscaleCapabilitiesParams = Record<string, never>;
 
 export interface UpscaleCapabilitiesResult {
-  engines: Record<string, never>[];
-  models: Record<string, never>[];
+  engines: Record<string, unknown>[];
+  models: Record<string, unknown>[];
   modes: string[];
   target_presets: string[];
   same_res_strengths: string[];
-  defaults: Record<string, never>;
-  seedvr?: Record<string, never>;
+  defaults: Record<string, unknown>;
+  seedvr?: Record<string, unknown>;
 }
 
 /** Upscale a video. Two modes: raise the resolution to a target preset, or enhance at the source resolution. Optional scene splitting, denoise and audio retention. Returns a task id; progress is streamed and the task is inspected through process.status / process.cancel. */
@@ -504,6 +527,8 @@ export const ERROR_CODES = {
   "MODEL_MISSING": { jsonrpc: -32003, retryable: true, message_key: "err.model_missing" },
   "FFMPEG_MISSING": { jsonrpc: -32004, retryable: false, message_key: "err.ffmpeg_missing" },
   "CANCELLED": { jsonrpc: -32005, retryable: true, message_key: "err.cancelled" },
+  "DETECTOR_MISSING": { jsonrpc: -32006, retryable: true, message_key: "err.detector_missing" },
+  "DETECTOR_FAILED": { jsonrpc: -32007, retryable: true, message_key: "err.detector_failed" },
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;

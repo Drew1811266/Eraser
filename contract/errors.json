@@ -11,6 +11,8 @@
     { "code": "TASK_NOT_FOUND", "jsonrpc": -32002, "retryable": false, "message_key": "err.task_not_found" },
     { "code": "MODEL_MISSING", "jsonrpc": -32003, "retryable": true, "message_key": "err.model_missing" },
     { "code": "FFMPEG_MISSING", "jsonrpc": -32004, "retryable": false, "message_key": "err.ffmpeg_missing" },
-    { "code": "CANCELLED", "jsonrpc": -32005, "retryable": true, "message_key": "err.cancelled" }
+    { "code": "CANCELLED", "jsonrpc": -32005, "retryable": true, "message_key": "err.cancelled" },
+    { "code": "DETECTOR_MISSING", "jsonrpc": -32006, "retryable": true, "message_key": "err.detector_missing" },
+    { "code": "DETECTOR_FAILED", "jsonrpc": -32007, "retryable": true, "message_key": "err.detector_failed" }
   ]
 }
