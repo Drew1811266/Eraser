@@ -30,7 +30,7 @@ export ERASER_PYTHON="$PY"
 
 STEPS=4
 if [ "$FULL" = "1" ]; then
-  STEPS=7
+  STEPS=8
 fi
 
 echo "== [1/$STEPS] contract artifacts are in sync =="
@@ -60,6 +60,15 @@ if [ "$FULL" = "1" ]; then
   echo
   echo "== [7/$STEPS] built UI in a real browser, against the real engine =="
   node scripts/e2e-renderer.mjs
+
+  if compgen -G "dist/installer/Eraser-Setup-*.exe" > /dev/null; then
+    echo
+    echo "== [8/$STEPS] shipped installers: payload and engine =="
+    "$PY" scripts/e2e-installer.py
+  else
+    echo
+    echo "== [8/$STEPS] shipped installers: skipped (run scripts/release.py first)"
+  fi
 fi
 
 echo
