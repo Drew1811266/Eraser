@@ -30,7 +30,7 @@ export ERASER_PYTHON="$PY"
 
 STEPS=4
 if [ "$FULL" = "1" ]; then
-  STEPS=9
+  STEPS=11
 fi
 
 echo "== [1/$STEPS] contract artifacts are in sync =="
@@ -70,13 +70,19 @@ if [ "$FULL" = "1" ]; then
     exit 1
   fi
 
+  echo "== [9/$STEPS] golden cases: no regression against the recorded baseline =="
+  "$PYTHON" scripts/golden.py --check
+
+  echo "== [10/$STEPS] scene splitting agrees with the reference implementation =="
+  "$PYTHON" scripts/parity-scene-split.py
+
   if compgen -G "dist/installer/Eraser-Setup-*.exe" > /dev/null; then
     echo
-    echo "== [9/$STEPS] shipped installers: payload and engine =="
+    echo "== [11/$STEPS] shipped installers: payload and engine =="
     "$PY" scripts/e2e-installer.py
   else
     echo
-    echo "== [9/$STEPS] shipped installers: skipped (run scripts/release.py first)"
+    echo "== [11/$STEPS] shipped installers: skipped (run scripts/release.py first)"
   fi
 fi
 

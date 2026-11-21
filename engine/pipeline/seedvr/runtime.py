@@ -265,12 +265,18 @@ class SeedVRRuntime:
             if not (manifest.runtime_root() / ".deps_ready").is_file():
                 if not manifest.requirements_file().is_file():
                     raise SeedVRError("the pinned CLI has no requirements.txt")
-                result = _run(
-                    [str(manifest.venv_python()), "-m", "pip", "install", "--upgrade", "pip"],
-                    cancel=cancel,
-                )
-                if result.returncode != 0:
-                    raise SeedVRError(f"pip upgrade failed: {result.stdout[-400:]}")
+                # Best effort, with a short leash: a venv created by the stdlib
+                # already has a working pip, and a proxy that stalls the version
+                # lookup must not stop the install that follows it.
+                try:
+                    _run(
+                        [str(manifest.venv_python()), "-m", "pip", "install", "--upgrade", "pip"],
+                        stall_timeout=90.0,
+                        cancel=cancel,
+                    )
+                except SeedVRError as exc:
+                    logger.warning("pip upgrade skipped: %s", exc)
+                    stage("requirements", 0.0, "跳过 pip 升级（网络不通），继续安装依赖")
                 def pip_line(line: str) -> None:
                     text = line.strip()
                     if not text:
