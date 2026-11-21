@@ -201,10 +201,72 @@ def detect_scene_cuts(path: str | Path, threshold: float = 0.32) -> list[float]:
     return sorted(set(cuts))
 
 
-#: Longest single segment allowed in hybrid mode. Past this the work per segment
-#: (and the memory the encoder holds) grows without anything being gained, so a
-#: long shot is cut even when the picture does not change.
-HYBRID_MAX_SECONDS = 20.0
+# These three come from the reference implementation's scene splitter, not from
+# taste. Matching them matters: segment length drives peak memory and how much
+# work a cancelled job loses, and a port that splits a 30s shot into one piece
+# where the original makes eight is not the same product.
+MIN_SCENE_SECONDS = 1.2
+SECONDARY_MERGE_SECONDS = 2.0
+MAX_SCENE_SECONDS = 4.0
+#: The reference only bothers splitting shots on clips long enough to have any.
+SPLIT_LONG_MIN_DURATION = 8.0
+
+#: Longest single segment allowed in hybrid mode.
+HYBRID_MAX_SECONDS = MAX_SCENE_SECONDS
+
+
+def _merge_short(segments: list[tuple[float, float]], minimum: float) -> list[tuple[float, float]]:
+    """Fold segments shorter than `minimum` into their shorter neighbour.
+
+    Straight port of the reference's `_merge_short_segments`: a flash frame
+    between two shots becomes part of whichever side is shorter, because a
+    4-frame segment is not a shot and the model cannot see enough of it to do
+    anything sensible anyway.
+    """
+    merged = [list(item) for item in segments]
+    index = 0
+    while index < len(merged):
+        start, end = merged[index]
+        if (end - start) >= minimum or len(merged) == 1:
+            index += 1
+            continue
+
+        if index == 0:
+            merged[1][0] = merged[0][0]
+            del merged[0]
+            continue
+        if index == len(merged) - 1:
+            merged[index - 1][1] = merged[index][1]
+            del merged[index]
+            index = max(0, index - 1)
+            continue
+
+        left = merged[index - 1][1] - merged[index - 1][0]
+        right = merged[index + 1][1] - merged[index + 1][0]
+        if left <= right:
+            merged[index - 1][1] = merged[index][1]
+        else:
+            merged[index + 1][0] = merged[index][0]
+        del merged[index]
+        index = max(0, index - 1)
+    return [(round(start, 3), round(end, 3)) for start, end in merged]
+
+
+def _split_long(segments: list[tuple[float, float]], maximum: float) -> list[tuple[float, float]]:
+    """Cut any segment longer than `maximum` into equal pieces."""
+    pieces: list[tuple[float, float]] = []
+    for start, end in segments:
+        span = end - start
+        if span <= maximum:
+            pieces.append((start, end))
+            continue
+        count = int(max(2, -(-span // maximum)))
+        step = span / count
+        for index in range(count):
+            piece_start = start + index * step
+            piece_end = end if index == count - 1 else piece_start + step
+            pieces.append((round(piece_start, 3), round(piece_end, 3)))
+    return pieces
 
 
 def build_segments(
@@ -212,11 +274,15 @@ def build_segments(
     cuts: list[float],
     *,
     max_length: float | None = None,
+    merge_short: bool = True,
 ) -> list[tuple[float, float]]:
     """Turn cut timestamps into `(start, length)` pairs covering the whole video.
 
-    `max_length` is what separates hybrid mode from rule mode: rule trusts the
-    detected cuts, hybrid also cuts long shots that have none.
+    The order matters and follows the reference: cut, drop degenerate pieces,
+    merge what is too short to be a shot, and only then split what is too long.
+    Doing the split first would produce pieces that the merge then recombines in
+    a different place, which is how two implementations end up with the same
+    cut list and different segments.
     """
     if duration <= 0:
         raise ConfigError("cannot split a video with no duration")
@@ -227,28 +293,24 @@ def build_segments(
             boundaries.append(cut)
     boundaries.append(duration)
 
-    if max_length and max_length > 0:
-        forced: list[float] = [boundaries[0]]
-        for boundary in boundaries[1:]:
-            previous = forced[-1]
-            span = boundary - previous
-            if span <= max_length:
-                forced.append(boundary)
-                continue
-            pieces = int(span // max_length) + (1 if span % max_length else 0)
-            step = span / pieces
-            for index in range(1, pieces):
-                forced.append(round(previous + step * index, 3))
-            forced.append(boundary)
-        boundaries = forced
+    segments = [
+        (round(boundaries[index], 3), round(boundaries[index + 1], 3))
+        for index in range(len(boundaries) - 1)
+        if boundaries[index + 1] - boundaries[index] > 0
+    ]
 
-    segments: list[tuple[float, float]] = []
-    for index in range(len(boundaries) - 1):
-        start = boundaries[index]
-        length = boundaries[index + 1] - start
-        if length > 0:
-            segments.append((round(start, 3), round(length, 3)))
-    return segments
+    if merge_short:
+        # Two passes, like the reference: 1.2s first (flash frames), then 2.0s
+        # (shots too short to be worth their own inference pass).
+        segments = _merge_short(segments, MIN_SCENE_SECONDS)
+        segments = _merge_short(segments, SECONDARY_MERGE_SECONDS)
+
+    if max_length and max_length > 0:
+        segments = _split_long(segments, max_length)
+
+    # Public shape is (start, length): it is what the job passes to ffmpeg's
+    # -ss/-t, and a caller that mistakes it for an end time cuts the wrong window.
+    return [(start, round(end - start, 3)) for start, end in segments]
 
 
 def plan_output_name(source: Path, plan: UpscalePlan) -> str:

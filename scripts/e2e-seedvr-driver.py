@@ -99,7 +99,9 @@ def build_runtime(root: Path) -> None:
     models.mkdir(parents=True, exist_ok=True)
     from engine.pipeline.seedvr import manifest
 
+    # A model is only "installed" together with its shared VAE.
     (models / manifest.get_spec(manifest.DEFAULT_MODEL_ID).filename).write_bytes(b"weights")
+    (models / manifest.VAE_SPEC.filename).write_bytes(b"vae")
 
 
 def main() -> int:

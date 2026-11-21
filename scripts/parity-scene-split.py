@@ -68,13 +68,14 @@ def make_clip(destination: Path, shots: int, duration: float = 2.0) -> None:
         raise SystemExit(f"clip generation failed: {compilation.stderr.decode('utf-8', 'replace')[-400:]}")
 
 
-def reference_segments(clip: Path, duration: float, fps: float) -> tuple[list[float], str]:
+def reference_split(clip: Path, duration: float, fps: float) -> tuple[list[float], list[tuple[float, float]], str]:
     sys.path.insert(0, str(REFERENCE))
     import scene_splitter  # type: ignore
 
     splitter = scene_splitter.SceneSplitter(ffmpeg_bin=str(FFMPEG))
     result = splitter.split(input_path=str(clip), duration_sec=duration, fps=fps)
-    return list(result.cuts), result.split_mode
+    segments = [(round(segment.start, 2), round(segment.end, 2)) for segment in result.segments]
+    return list(result.cuts), segments, result.split_mode
 
 
 def port_cuts(clip: Path) -> list[float]:
@@ -114,7 +115,7 @@ def main() -> int:
         clip = WORK / f"{name}.mp4"
         make_clip(clip, shots, duration=2.0)
 
-        reference, mode = reference_segments(clip, 2.0, 24.0)
+        reference, reference_segments, mode = reference_split(clip, 2.0, 24.0)
         mine = port_cuts(clip)
 
         if args.verbose:
@@ -129,9 +130,15 @@ def main() -> int:
         extra = [cut for cut in mine if not any(abs(cut - other) <= CUT_TOLERANCE for other in reference)]
         check("the port does not invent cuts", len(extra) == 0, str(extra[:3]) if extra else "")
 
+        from engine.pipeline.upscale_plan import build_segments
+
+        my_segments = build_segments(2.0, mine, merge_short=True)
         check("segment counts agree within one",
-              abs(len(reference) + 1 - (len(mine) + 1)) <= COUNT_TOLERANCE,
-              f"reference {len(reference) + 1}, port {len(mine) + 1}")
+              abs(len(reference_segments) - len(my_segments)) <= COUNT_TOLERANCE,
+              f"reference {len(reference_segments)}, port {len(my_segments)}")
+        if args.verbose:
+            print(f"  reference segments: {reference_segments}")
+            print(f"  port segments     : {my_segments}")
 
     print()
     print(f"{passed} passed, {failed} failed")

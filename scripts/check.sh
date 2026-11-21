@@ -71,19 +71,19 @@ if [ "$FULL" = "1" ]; then
   fi
 
   echo "== [9/$STEPS] golden cases: no regression against the recorded baseline =="
-  "$PYTHON" scripts/golden.py --check
+  "$PY" scripts/golden.py --check
 
   echo "== [10/$STEPS] scene splitting agrees with the reference implementation =="
-  "$PYTHON" scripts/parity-scene-split.py
+  "$PY" scripts/parity-scene-split.py
 
   echo "== [11/$STEPS] annotations normalise like the reference implementation =="
-  "$PYTHON" scripts/parity-annotations.py
+  "$PY" scripts/parity-annotations.py
 
   echo "== [12/$STEPS] the SeedVR2 driver, against a stand-in CLI =="
-  "$PYTHON" scripts/e2e-seedvr-driver.py | tail -4
+  "$PY" scripts/e2e-seedvr-driver.py | tail -4
 
   echo "== [13/$STEPS] SeedVR2 with the real model (skipped when not installed) =="
-  "$PYTHON" scripts/e2e-seedvr-real.py | tail -3
+  "$PY" scripts/e2e-seedvr-real.py | tail -3
 
   if compgen -G "dist/installer/Eraser-Setup-*.exe" > /dev/null; then
     echo

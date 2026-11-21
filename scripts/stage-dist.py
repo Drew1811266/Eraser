@@ -48,10 +48,10 @@ def freeze(python: str) -> None:
     ])
 
 
-def copy_tree(source: Path, target: Path) -> None:
+def copy_tree(source: Path, target: Path, ignore: list[str] | None = None) -> None:
     if target.exists():
         shutil.rmtree(target)
-    shutil.copytree(source, target)
+    shutil.copytree(source, target, ignore=shutil.ignore_patterns(*(ignore or [])))
     size = sum(f.stat().st_size for f in target.rglob("*") if f.is_file())
     print(f"  {target.relative_to(ROOT)}  ({size / 1e6:.1f} MB)")
 
@@ -107,7 +107,10 @@ def main() -> int:
     STAGE.mkdir(parents=True)
 
     copy_tree(FROZEN, ENGINE_OUT)
-    copy_tree(ROOT / "models", ENGINE_OUT / "models")
+    # `models/runtime` holds the optional SeedVR2 virtualenv: several gigabytes
+    # of PyTorch that are installed on demand, never shipped. Copying it here is
+    # how the installer grew to 8GB and failed to build.
+    copy_tree(ROOT / "models", ENGINE_OUT / "models", ignore=["runtime", "__pycache__"])
     copy_tree(ROOT / "vendor" / "ffmpeg", ENGINE_OUT / "vendor" / "ffmpeg")
     if args.cuda:
         stage_cuda(ENGINE_OUT)

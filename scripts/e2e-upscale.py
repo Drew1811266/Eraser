@@ -166,16 +166,19 @@ def has_audio(path: Path) -> bool:
     return any(stream.get("codec_type") == "audio" for stream in streams)
 
 
-def build_cut_fixture(destination: Path, first: Path, frames: int) -> None:
-    """A clip that changes shot half way, with an audio track.
+def build_cut_fixture(destination: Path, first: Path, frames: int) -> int:
+    """A clip that changes shot half way, with an audio track. Returns its frames.
 
-    Scene splitting and audio retention were both untestable without this: a
-    single-shot silent clip can neither be split nor lose its sound.
+    Each shot is 2.5s on purpose. The reference merges anything under 1.2s and
+    then anything under 2.0s into its neighbour, so shorter shots are correctly
+    *not* split — an earlier version of this fixture passed for the wrong reason.
     """
-    half = max(1, frames // 2)
+    shot_frames = 60
+    half = shot_frames
+    frames = shot_frames * 2
     head = destination.parent / "cut-head.mp4"
     tail = destination.parent / "cut-tail.mp4"
-    run([str(FFMPEG), "-y", "-v", "error", "-i", str(first),
+    run([str(FFMPEG), "-y", "-v", "error", "-stream_loop", "-1", "-i", str(first),
          "-frames:v", str(half), "-an", "-c:v", "libx264", "-preset", "veryfast",
          "-crf", "20", "-pix_fmt", "yuv420p", str(head)])
     run([str(FFMPEG), "-y", "-v", "error", "-f", "lavfi",
@@ -190,6 +193,7 @@ def build_cut_fixture(destination: Path, first: Path, frames: int) -> None:
          "-c:v", "copy", "-c:a", "aac", "-shortest", str(destination)])
     for temporary in (head, tail, joined):
         temporary.unlink(missing_ok=True)
+    return frames
 
 
 def main_config_scenarios(width: int, height: int, frames: int) -> int:
@@ -214,10 +218,10 @@ def main_config_scenarios(width: int, height: int, frames: int) -> int:
     check("same-resolution mode is reported as such", result["same_resolution"] is True)
 
     cut_source = WORK / "cuts.mp4"
-    build_cut_fixture(cut_source, WORK / "source.mp4", frames)
+    cut_frames = build_cut_fixture(cut_source, WORK / "source.mp4", frames)
     cuts = detect_scene_cuts(cut_source)
     check("a hard cut is detected", len(cuts) >= 1, str(cuts))
-    info_duration = frames / 24
+    info_duration = cut_frames / 24
     segments = build_segments(info_duration, cuts)
     check("the clip splits into the detected shots", len(segments) >= 2, str(segments))
 
@@ -227,7 +231,7 @@ def main_config_scenarios(width: int, height: int, frames: int) -> int:
     })
     result = upscale_with_config(cut_source, None, split, segments=segments, output_dir=WORK)
     out_w, out_h, out_frames = probe_size(Path(result["output_path"]))
-    check("a split upscale keeps the frame count", out_frames == frames, f"{out_frames} vs {frames}")
+    check("a split upscale keeps the frame count", out_frames == cut_frames, f"{out_frames} vs {cut_frames}")
     check("a split upscale reports its segments", result["segments"] >= 2, str(result["segments"]))
     check("audio survives by default", has_audio(Path(result["output_path"])))
 

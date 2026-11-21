@@ -288,7 +288,12 @@ def upscale_with_config(
         target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    windows = list(segments) if segments else [(0.0, duration if duration > 0 else frames / max(fps, 1.0))]
+    # Prefer frame_count / fps over the container's duration: for a concatenated
+    # or VFR file the header's number is short by a frame or two, and `-t` drops
+    # exactly those.
+    exact_duration = frames / fps if fps > 0 else duration
+    span = exact_duration if exact_duration > 0 else duration
+    windows = list(segments) if segments else [(0.0, span)]
     total = len(windows)
 
     engine = upscaler or RealEsrganUpscaler()

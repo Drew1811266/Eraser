@@ -103,6 +103,20 @@ class SegmentTests(unittest.TestCase):
     def test_cuts_at_the_edges_and_duplicates_are_dropped(self) -> None:
         self.assertEqual(build_segments(5.0, [0.0, 5.0, 2.0, 2.01]), [(0.0, 2.0), (2.0, 3.0)])
 
+    def test_shots_shorter_than_the_reference_minimum_are_merged(self) -> None:
+        # Four 0.5s shots: the reference folds them into one segment, because a
+        # 12-frame shot has nothing for the model to work with.
+        self.assertEqual(build_segments(2.0, [0.5, 1.0, 1.5]), [(0.0, 2.0)])
+
+    def test_a_flash_frame_joins_its_shorter_neighbour(self) -> None:
+        merged = build_segments(5.0, [0.3, 0.6, 2.5])
+        self.assertEqual(len(merged), 2)
+        self.assertAlmostEqual(merged[0][1], 2.5)
+
+    def test_merging_can_be_turned_off(self) -> None:
+        raw = build_segments(2.0, [0.5, 1.0, 1.5], merge_short=False)
+        self.assertEqual(len(raw), 4)
+
     def test_hybrid_cuts_long_shots_that_rule_leaves_alone(self) -> None:
         rule = build_segments(50.0, [10.0])
         hybrid = build_segments(50.0, [10.0], max_length=20.0)

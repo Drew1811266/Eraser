@@ -596,6 +596,10 @@ class SeedVRRuntime:
         produced = sorted(output_dir.glob("*.mp4"), key=lambda path: path.stat().st_mtime)
         if not produced:
             raise SeedVRError("SeedVR2 produced no output file")
+
+        # The process exited cleanly and the file is there; whatever the CLI's
+        # last printed line was, the run is finished.
+        _emit(progress, phase="finalize", progress=1.0, message="完成")
         return produced[-1]
 
 
