@@ -462,7 +462,12 @@ class SeedVRRuntime:
                 _kill_tree(process)
                 reader.join(timeout=2)
                 raise _Cancelled()
-            process.wait(timeout=0.3)
+            try:
+                # A timeout here is the normal case: it is how the loop gets to
+                # re-check the cancel flag while the model works.
+                process.wait(timeout=0.3)
+            except subprocess.TimeoutExpired:
+                continue
         reader.join(timeout=3)
 
         if process.returncode != 0:

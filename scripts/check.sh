@@ -30,7 +30,7 @@ export ERASER_PYTHON="$PY"
 
 STEPS=4
 if [ "$FULL" = "1" ]; then
-  STEPS=12
+  STEPS=13
 fi
 
 echo "== [1/$STEPS] contract artifacts are in sync =="
@@ -79,13 +79,16 @@ if [ "$FULL" = "1" ]; then
   echo "== [11/$STEPS] annotations normalise like the reference implementation =="
   "$PYTHON" scripts/parity-annotations.py
 
+  echo "== [12/$STEPS] the SeedVR2 driver, against a stand-in CLI =="
+  "$PYTHON" scripts/e2e-seedvr-driver.py | tail -4
+
   if compgen -G "dist/installer/Eraser-Setup-*.exe" > /dev/null; then
     echo
-    echo "== [12/$STEPS] shipped installers: payload and engine =="
+    echo "== [13/$STEPS] shipped installers: payload and engine =="
     "$PY" scripts/e2e-installer.py
   else
     echo
-    echo "== [12/$STEPS] shipped installers: skipped (run scripts/release.py first)"
+    echo "== [13/$STEPS] shipped installers: skipped (run scripts/release.py first)"
   fi
 fi
 

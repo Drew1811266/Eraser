@@ -141,6 +141,21 @@ def check_installer(seven: Path, installer: Path, expect_cuda: bool, scratch: Pa
     if not engine.is_file():
         return
 
+    # The engine import graph grew an optional runtime (`seedvr`), imported
+    # inside handlers. If the freezer missed it, the packaged app would offer
+    # SeedVR2 and fail when asked — so ask the shipped binary directly.
+    # The engine speaks JSON-RPC on stdin; one line, then EOF, is a whole session.
+    capabilities = subprocess.run(
+        [str(engine)],
+        input='{"jsonrpc":"2.0","id":1,"method":"upscale.capabilities","params":{}}\n',
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    capability_text = (capabilities.stdout or "") + (capabilities.stderr or "")
+    check("the shipped engine answers upscale.capabilities",
+          "realesrgan" in capability_text and "seedvr2" in capability_text,
+          (capability_text.strip().splitlines() or [""])[-1][:80])
+
     info = run_engine(engine, ["info"])
     text = (info.stdout or "") + (info.stderr or "")
     check("engine reports its runtime", "onnxruntime" in text,

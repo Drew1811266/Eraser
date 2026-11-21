@@ -120,3 +120,22 @@ node scripts/e2e-desktop.mjs
 参考实现代码里的 `src/core/scene_splitter.py` 是纯逻辑（ffmpeg + 可选 scenedetect），
 可用于逐函数对比；`annotations.py` 只依赖标准库，也可以直接跑。宏观画质对位仍需要
 一台 mac 录 reference 用例。
+
+
+## 10. SeedVR2 现状（可验证到哪一步）
+
+| 环节 | 状态 | 证据 |
+|---|---|---|
+| 能力探测与原因 | 已验证 | 14 个单测；`upscale.capabilities` 6 项协议检查 |
+| 安装器（venv / 固定 commit / 校验下载 / 取消 / 互斥锁） | 已验证 | 13 个单测（含 sha256 不符、取消、锁） |
+| 驱动（命令拼装 / 进度解析 / 取消 / 出片发现 / 任务接线） | 已验证 | `scripts/e2e-seedvr-driver.py` 13 项，对桩 CLI |
+| **模型本身出片质量** | **未验证** | 需要 torch + 3.6GB 权重；本环境 `pip install torch` 在解析阶段静默挂起 |
+
+安装器已实测到这里：Python 3.12 发现、venv 创建、固定 commit 拉取解包（20MB）都成功；
+卡在依赖安装（torch 约 2.5GB）。换一台能正常访问 PyPI 的机器执行即可继续：
+
+```bash
+python -c "from engine.pipeline.seedvr.runtime import install; install('seedvr2_3b_q4_k_m_gguf', progress=print)"
+```
+
+**在它跑通之前，界面会如实显示"运行时未安装"，不会假装可用。**
