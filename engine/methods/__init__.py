@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from engine.methods import (
+    analyze,
     annotation,
     annotation_store,
     assets,
@@ -31,6 +32,7 @@ def register_all(server: RpcServer) -> list[str]:
     preview.register(server)
     process.register(server, manager)
     upscale.register(server, manager)
+    analyze.register(server, manager)
     assets.register(server)
     model_download.register(server)
 

@@ -26,6 +26,35 @@ export interface Segment {
   enabled?: boolean;
   created_at?: string;
   updated_at?: string;
+  keyframes?: RectKeyframe[];
+}
+
+export interface FrameInterval {
+  start_frame: number;
+  end_frame: number;
+}
+
+export interface RectKeyframe {
+  frame: number;
+  rect: Rect;
+}
+
+export interface WatermarkTrack {
+  id: string;
+  intervals: FrameInterval[];
+  keyframes: RectKeyframe[];
+  motion?: string;
+  confidence?: number;
+  source?: string;
+  notes?: string[];
+}
+
+export interface DetectorEntry {
+  model_id: string;
+  display_name: string;
+  installed: boolean;
+  available: boolean;
+  blocked_reason?: string;
 }
 
 export interface MediaInfo {
@@ -318,6 +347,37 @@ export interface AssetsVerifyResult {
   missing: string[];
 }
 
+/** Report which watermark detectors can run on this machine. */
+export type AnalyzeCapabilitiesParams = Record<string, never>;
+
+export interface AnalyzeCapabilitiesResult {
+  detectors: DetectorEntry[];
+  available: boolean;
+}
+
+/** Analyse a video: shots, watermark tracks, intervals and motion. */
+export interface AnalyzeStartParams {
+  input_path: string;
+  sample_step?: number;
+  max_tracks?: number;
+  min_confidence?: number;
+}
+
+export interface AnalyzeStartResult {
+  task_id: string;
+}
+
+/** Turn watermark tracks into the segment list the pipeline consumes. */
+export interface AnnotationCompileParams {
+  watermarks: WatermarkTrack[];
+  shots: FrameInterval[];
+  video: { width: number; height: number; frame_count: number; };
+}
+
+export interface AnnotationCompileResult {
+  segments: Segment[];
+}
+
 // ---- method surface ----
 export type MethodName =
   | "system.ping"
@@ -342,7 +402,10 @@ export type MethodName =
   | "model.download.start"
   | "model.download.status"
   | "model.installStatus"
-  | "assets.verify";
+  | "assets.verify"
+  | "analyze.capabilities"
+  | "analyze.start"
+  | "annotation.compile";
 
 export interface MethodParams {
   "system.ping": SystemPingParams;
@@ -368,6 +431,9 @@ export interface MethodParams {
   "model.download.status": ModelDownloadStatusParams;
   "model.installStatus": ModelInstallStatusParams;
   "assets.verify": AssetsVerifyParams;
+  "analyze.capabilities": AnalyzeCapabilitiesParams;
+  "analyze.start": AnalyzeStartParams;
+  "annotation.compile": AnnotationCompileParams;
 }
 
 export interface MethodResults {
@@ -394,6 +460,9 @@ export interface MethodResults {
   "model.download.status": ModelDownloadStatusResult;
   "model.installStatus": ModelInstallStatusResult;
   "assets.verify": AssetsVerifyResult;
+  "analyze.capabilities": AnalyzeCapabilitiesResult;
+  "analyze.start": AnalyzeStartResult;
+  "annotation.compile": AnnotationCompileResult;
 }
 
 export const IMPLEMENTED_METHODS = [
@@ -418,6 +487,9 @@ export const IMPLEMENTED_METHODS = [
   "model.download.start",
   "model.download.status",
   "assets.verify",
+  "analyze.capabilities",
+  "analyze.start",
+  "annotation.compile",
 ] as const;
 
 // ---- errors ----

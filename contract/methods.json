@@ -85,12 +85,118 @@
         },
         "updated_at": {
           "type": "string"
+        },
+        "keyframes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/types/RectKeyframe"
+          }
         }
       },
       "required": [
         "start_frame",
         "end_frame",
         "rect"
+      ]
+    },
+    "FrameInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start_frame": {
+          "type": "integer"
+        },
+        "end_frame": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start_frame",
+        "end_frame"
+      ]
+    },
+    "RectKeyframe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frame": {
+          "type": "integer"
+        },
+        "rect": {
+          "$ref": "#/types/Rect"
+        }
+      },
+      "required": [
+        "frame",
+        "rect"
+      ]
+    },
+    "WatermarkTrack": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "intervals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/types/FrameInterval"
+          }
+        },
+        "keyframes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/types/RectKeyframe"
+          }
+        },
+        "motion": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "source": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "intervals",
+        "keyframes"
+      ]
+    },
+    "DetectorEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "blocked_reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_id",
+        "display_name",
+        "installed",
+        "available"
       ]
     },
     "MediaInfo": {
@@ -1097,6 +1203,133 @@
         "required": [
           "ok",
           "missing"
+        ]
+      }
+    },
+    {
+      "name": "analyze.capabilities",
+      "summary": "Report which watermark detectors can run on this machine.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "detectors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/types/DetectorEntry"
+            }
+          },
+          "available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "detectors",
+          "available"
+        ]
+      }
+    },
+    {
+      "name": "analyze.start",
+      "summary": "Analyse a video: shots, watermark tracks, intervals and motion.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "input_path": {
+            "type": "string"
+          },
+          "sample_step": {
+            "type": "integer"
+          },
+          "max_tracks": {
+            "type": "integer"
+          },
+          "min_confidence": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "input_path"
+        ]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "annotation.compile",
+      "summary": "Turn watermark tracks into the segment list the pipeline consumes.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "watermarks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/types/WatermarkTrack"
+            }
+          },
+          "shots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/types/FrameInterval"
+            }
+          },
+          "video": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              },
+              "frame_count": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "width",
+              "height",
+              "frame_count"
+            ]
+          }
+        },
+        "required": [
+          "watermarks",
+          "shots",
+          "video"
+        ]
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/types/Segment"
+            }
+          }
+        },
+        "required": [
+          "segments"
         ]
       }
     }

@@ -87,6 +87,11 @@ class ContractShapeTests(unittest.TestCase):
                 "upscale.capabilities",
                 "model.list",
                 "assets.verify",
+                # The analysis stage: a detector surface, the analysis task, and
+                # the compile step that turns tracks into pipeline segments.
+                "analyze.capabilities",
+                "analyze.start",
+                "annotation.compile",
             },
         )
         self.assertLess(set(IMPLEMENTED_METHODS), set(METHODS), "some methods must remain stubbed")

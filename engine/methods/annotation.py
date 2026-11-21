@@ -137,3 +137,74 @@ def register(server: RpcServer, clock: Clock = _now_iso) -> None:
         return {"segments": normalize_segments(segments, video, now=clock)}
 
     server.register("annotation.normalize", handle_normalize)
+
+    def handle_compile(params: dict[str, Any]) -> dict[str, Any]:
+        """Tracks -> segments.
+
+        Lives on the engine side on purpose: the compile rules have to agree with
+        `normalize_segments`, and two copies of "clamp to the frame" would drift.
+        """
+        from engine.pipeline.analysis import (
+            BBox,
+            Interval,
+            Keyframe,
+            WatermarkTrack,
+            compile_tracks,
+        )
+
+        raw_tracks = params.get("watermarks")
+        raw_shots = params.get("shots")
+        video = params.get("video")
+        if not isinstance(raw_tracks, list) or not isinstance(raw_shots, list):
+            raise invalid_params("watermarks and shots must be arrays")
+        if not isinstance(video, dict):
+            raise invalid_params("video must be an object")
+
+        tracks: list[WatermarkTrack] = []
+        for raw in raw_tracks:
+            data = raw if isinstance(raw, dict) else {}
+            intervals = [
+                Interval(
+                    _coerce_int(item.get("start_frame", 0), 0),
+                    _coerce_int(item.get("end_frame", 0), 0),
+                )
+                for item in (data.get("intervals") or [])
+                if isinstance(item, dict)
+            ]
+            keyframes = [
+                Keyframe(
+                    _coerce_int(item.get("frame", 0), 0),
+                    BBox.from_dict(item.get("rect")),
+                )
+                for item in (data.get("keyframes") or [])
+                if isinstance(item, dict)
+            ]
+            tracks.append(
+                WatermarkTrack(
+                    id=str(data.get("id") or uuid4().hex),
+                    intervals=intervals,
+                    keyframes=keyframes,
+                    motion=str(data.get("motion") or "static"),
+                    confidence=float(data.get("confidence") or 0.0),
+                    source=str(data.get("source") or "manual"),
+                    notes=[str(item) for item in (data.get("notes") or [])],
+                )
+            )
+
+        shots = [
+            Interval(
+                _coerce_int(item.get("start_frame", 0), 0),
+                _coerce_int(item.get("end_frame", 0), 0),
+            )
+            for item in raw_shots
+            if isinstance(item, dict)
+        ]
+        segments = compile_tracks(
+            tracks,
+            shots=shots,
+            frame_width=_coerce_int(video.get("width", 0), 0),
+            frame_height=_coerce_int(video.get("height", 0), 0),
+        )
+        return {"segments": segments}
+
+    server.register("annotation.compile", handle_compile)
