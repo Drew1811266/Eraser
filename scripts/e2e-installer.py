@@ -42,6 +42,24 @@ def check(name: str, condition: bool, detail: str = "") -> None:
         print(f"  [FAIL] {name}" + (f" ({detail})" if detail else ""))
 
 
+def newest_source_mtime() -> float:
+    """When the shipped code last changed.
+
+    An installer older than the code it was built from is worse than no check at
+    all: it passes, and the reader believes the artefact matches HEAD.
+    """
+    newest = 0.0
+    roots = ["engine", "contract", "desktop/electron", "desktop/renderer", "desktop/shared"]
+    for root in roots:
+        for path in (ROOT / root).rglob("*"):
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            if path.suffix in {".pyc", ".map"}:
+                continue
+            newest = max(newest, path.stat().st_mtime)
+    return newest
+
+
 def find_7zip() -> Path | None:
     for pattern in (
         ".cache/electron-builder/**/7za.exe",
@@ -163,6 +181,11 @@ def main() -> int:
     if not installers:
         print("no installers in dist/installer; run scripts/release.py first")
         return 1
+
+    newest = newest_source_mtime()
+    stale = [installer.name for installer in installers if installer.stat().st_mtime < newest]
+    check("installers are newer than the code they ship", not stale,
+          f"stale: {', '.join(stale)} — run scripts/release.py" if stale else "")
 
     scratch = Path(tempfile.mkdtemp(prefix="eraser-installer-", dir=str(ROOT / ".cache")))
     try:
