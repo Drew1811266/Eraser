@@ -387,7 +387,7 @@ class BaseInpaintEngine:
 - **硬门槛**：质量档 PSNR/SSIM 不低于 LaMa，闪烁显著更低，掩码外破坏不劣化。
 - **分析门槛**：负样本误报为 0；主用例召回 ≥ 0.9；运动判定在合成素材上必须全对。
 - **不预设立场**：若 ProPainter 的收益不足以抵消"慢 + 大运行时"，方案降级为"只做分析自动化，模型保持 LaMa"，并如实记录。
-- **产物**：`docs/10-quality-baseline.md`；7 组用例的干净原片作为 **reference 用例**加入 `golden/cases/`（仓库第一次有真值用例）。
+- **产物**：`docs/11-quality-baseline.md`；7 组用例的干净原片作为 **reference 用例**加入 `golden/cases/`（仓库第一次有真值用例）。
 
 ### 9.5 新增脚本（不改现有门禁行为）
 
