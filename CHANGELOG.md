@@ -4,7 +4,7 @@
 
 ---
 
-## v0.1.0 — 2026-11-21 · 首个 Windows 版本
+## v0.0.1 — 2026-11-21 · 首个 Windows 开发快照
 
 把只存在于 macOS 的 [Mac-Remover](https://github.com/Drew1811266/Mac-Remover) 移植成
 Windows 桌面应用。功能对应关系、技术选择与取舍分别记录在 `docs/adr/0001`–`0006`。
@@ -50,8 +50,8 @@ Windows 桌面应用。功能对应关系、技术选择与取舍分别记录在
 
 | 文件 | 体积 | 说明 |
 |---|---|---|
-| `Eraser-Setup-0.1.0.exe` | 663 MB | CPU 版，任何 Win10/11 x64 |
-| `Eraser-Setup-GPU-0.1.0.exe` | 1439 MB | 含 CUDA 13 运行时（cuBLAS/cuDNN） |
+| `Eraser-Setup-0.0.1.exe` | 668 MB | CPU 版，任何 Win10/11 x64 |
+| `Eraser-Setup-GPU-0.0.1.exe` | 1444 MB | 含 CUDA 13 运行时（cuBLAS/cuDNN） |
 
 两个包的应用本体相同，GPU 包多一个 `resources/engine/cuda/` 目录。
 安装包内含 ffmpeg（GPL 构建，见 ADR-0004）与两个 ONNX 模型。
@@ -88,7 +88,7 @@ Windows 桌面应用。功能对应关系、技术选择与取舍分别记录在
 - 2× 超分结果上报成 4× 尺寸（文件本身正确）。
 - 进度回调签名不匹配导致进度条始终为 0%。
 
-### 界面（0.1.0 起为参考项目的原界面）
+### 界面（参考项目的原界面）
 
 Windows 版直接移植参考项目的 `frontend/src`（26 个文件）：左侧四个目的地
 （视频导入 / 水印打标 / 效果预览 / 视频放大）、Material 3 深色主题、打标工作台

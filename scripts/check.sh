@@ -28,6 +28,20 @@ elif [ -z "${PYTHON:-}" ] && [ -x ".venv/bin/python" ]; then
 fi
 export ERASER_PYTHON="$PY"
 
+# The engine writes previews and scratch encodes under the system temp, falling
+# back to the application data directory. Neither is writable in a restricted
+# session, and `tempfile.gettempdir()` then answers with the working directory —
+# which the engine now refuses on purpose. Point it somewhere real.
+if [ -z "${ERASER_TEMP_DIR:-}" ]; then
+  mkdir -p .cache/tmp
+  if command -v cygpath > /dev/null 2>&1; then
+    # The engine is a native process: it cannot open an MSYS path like /d/....
+    export ERASER_TEMP_DIR="$(cygpath -w "$PWD/.cache/tmp")"
+  else
+    export ERASER_TEMP_DIR="$PWD/.cache/tmp"
+  fi
+fi
+
 STEPS=4
 if [ "$FULL" = "1" ]; then
   STEPS=15

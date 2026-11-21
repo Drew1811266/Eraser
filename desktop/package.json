@@ -1,8 +1,8 @@
 {
   "name": "eraser-desktop",
   "private": true,
-  "version": "0.1.0",
-  "description": "Eraser desktop shell: Electron main process + React renderer.",
+  "version": "0.0.1",
+  "description": "Windows desktop video watermark remover, ported from Mac-Remover",
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "build:electron": "tsc -p tsconfig.electron.json",
@@ -78,5 +78,6 @@
       "deleteAppDataOnUninstall": false,
       "runAfterFinish": true
     }
-  }
+  },
+  "license": "MIT"
 }

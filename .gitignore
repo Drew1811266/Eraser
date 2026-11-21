@@ -80,3 +80,4 @@ desktop.config.local.*
 /tmp*/
 /pip-unpack-*/
 /pip-metadata-*/
+/CON
