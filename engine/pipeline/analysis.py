@@ -169,10 +169,14 @@ MERGE_GAP_SECONDS = 1.5
 #: Beyond this the watermark is considered to have come back as a new interval.
 REOPEN_GAP_SECONDS = 5.0
 SIZE_SIMILARITY = 0.25
-#: Association window as a fraction of the frame width. Used both for
-#: continuation and for re-opening within the same shot; across a cut the camera
-#: moved, so the hard window is dropped and position only breaks ties.
+#: Association window as a fraction of the frame width. Governs continuity and
+#: short re-opens; across a cut, or after a longer absence, position is only a
+#: sanity bound (see `REOPEN_TRAVEL`).
 ASSOCIATION_WINDOW = 0.08
+#: How far a watermark may plausibly have travelled while it was hidden for more
+#: than the merge window. Wider than the association window because it is a
+#: *return*, not a continuation.
+REOPEN_TRAVEL = 0.5
 
 
 def rescale_detections(
@@ -262,8 +266,8 @@ def _assign_matches(
             if score >= IOU_MATCH:
                 rank = (0, -score, distance)
             elif distance <= window:
-                # Same rule as before, but only reachable when no overlapping
-                # pair exists — that is what makes small watermarks continuous.
+                # Rank 1 loses to every overlapping pair, so this only decides
+                # anything when nothing overlaps.
                 rank = (1, distance, 0.0)
             else:
                 continue
@@ -431,10 +435,10 @@ def _reopenable(
 ) -> _MutableTrack | None:
     """Pick the idle track this detection most plausibly belongs to.
 
-    Within a shot the same movement window as continuation applies — a watermark
-    that reappears across the room is a different watermark, not a return.
-    Across a cut the hard window is dropped (the camera moved, not the mark) and
-    position only breaks ties between equally old candidates.
+    Within a shot, a *continuation* (gap inside the merge window) must sit inside
+    the association window; a *return* after a longer absence only has to be
+    plausible, because a moving watermark may have travelled while hidden. Across
+    a cut the camera moved, so position is a weak tie-breaker rather than a gate.
     """
     shot = _shot_index(shots, frame)
     window = ASSOCIATION_WINDOW * frame_width
@@ -448,8 +452,17 @@ def _reopenable(
             continue
         distance = center_distance(track.last_rect, detection.rect)
         same_shot = shot == track.last_shot
-        if same_shot and distance > window:
-            continue
+        if same_shot:
+            # Continuity gets the association window; a longer absence is a
+            # *return* (spec §4.3 rule 3), and the watermark may have moved while
+            # it was hidden, so only a generous sanity bound applies there.
+            limit = (
+                window
+                if gap <= MERGE_GAP_SECONDS
+                else REOPEN_TRAVEL * frame_width
+            )
+            if distance > limit:
+                continue
         distance_weight = 1.0 if same_shot else 0.1
         score = gap / max(1e-6, max_gap_seconds) + distance_weight * distance / max(
             1, frame_width

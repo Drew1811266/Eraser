@@ -157,6 +157,14 @@ class ReopenIdentityTests(unittest.TestCase):
         self.assertEqual(sorted(segment["rect"]["x"] for segment in segments), [40, 200])
 
 
+    def test_reappearance_after_a_long_gap_may_have_moved(self) -> None:
+        # 90 frames = 3 s. The spec treats a return within 5 s as the same
+        # watermark, and a moving one may have travelled while it was hidden —
+        # the 8% continuity window only governs missed detections.
+        tracks = _run({0: [_det(0, 40)], 90: [_det(90, 200)]})
+        self.assertEqual(len(tracks), 1)
+        self.assertEqual(len(tracks[0].intervals), 2)
+
     def test_same_shot_jump_beyond_the_window_is_a_new_track(self) -> None:
         # 160 px apart in the same shot is two watermarks, not one that jumped.
         # Merging them is the failure mode the spec calls out first.
