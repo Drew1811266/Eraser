@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
@@ -20,9 +20,5 @@ export default defineConfig({
   server: {
     port: 5273,
     strictPort: true,
-  },
-  test: {
-    setupFiles: [path.resolve(__dirname, 'renderer', 'test-setup.ts')],
-    include: ['**/*.test.ts', '**/*.test.tsx'],
   },
 });
