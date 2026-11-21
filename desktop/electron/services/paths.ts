@@ -18,13 +18,42 @@ export interface EngineLaunch {
   cwd: string;
 }
 
-/** The directory that holds `package.json` — `desktop/` when running from source. */
+/**
+ * The directory that holds `package.json` — `desktop/` when running from source.
+ *
+ * `getAppPath()` answers that when Electron is given the app directory, but
+ * points at the script's own folder when it is given a script (the smoke driver
+ * does that). Both are tried, so a launch mode cannot silently move the app root.
+ */
 export function appRoot(): string {
+  const candidates = [app.getAppPath(), path.resolve(__dirname, '..', '..', '..')];
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'package.json'))) {
+      return candidate;
+    }
+  }
   return app.getAppPath();
 }
 
-/** Repository root when running from source. */
+/**
+ * Repository root when running from source.
+ *
+ * Not simply `appRoot()/..`: when Electron is pointed at a script instead of the
+ * app directory (the smoke driver does that), `getAppPath()` is the directory of
+ * that script, and the engine would be looked for in `dist-electron/.venv`.
+ * Walking up from this file's compiled location lands on the repository either
+ * way — `desktop/dist-electron/electron` -> `desktop` -> repository.
+ */
 export function repoRoot(): string {
+  let candidate = __dirname;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (fs.existsSync(path.join(candidate, 'engine', 'main.py'))) {
+      return candidate;
+    }
+    const parent = path.dirname(candidate);
+    if (parent === candidate) break;
+    candidate = parent;
+  }
   return path.resolve(appRoot(), '..');
 }
 
@@ -67,5 +96,6 @@ export function rendererEntry(devServerUrl: string | undefined): { kind: 'url' |
 }
 
 export function preloadEntry(): string {
-  return path.join(__dirname, 'preload.js');
+  // This module lives in `electron/services/`, the preload one level up.
+  return path.join(__dirname, '..', 'preload.js');
 }

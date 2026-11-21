@@ -25,7 +25,7 @@ const VIDEO_FILTERS = [
 
 const DEFAULT_SETTINGS: WmrSettings = {
   language: 'zh',
-  theme: 'dark',
+  theme: 'light',
   output: { path: '', model_id: 'lama_roi' },
 };
 

@@ -104,7 +104,19 @@ devices:
 | 无自动更新 | 新版本需手动安装 |
 | 预览不支持 MKV/部分 HEVC | Chromium 的解码限制；处理本身不受影响（ffmpeg 负责） |
 
-## 9. 出问题怎么报
+## 9. 打不开或一闪而过
+
+先看日志：`%APPDATA%\Eraser\logs\main.log`（便携运行时在程序目录旁的
+`userData` 里）。启动的每个阶段都会写一行，崩溃前最后一行就是线索。
+
+两种已知的"不是程序问题"：
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 双击后什么都不出现，日志也只有一行 | 环境变量 `NODE_USE_ENV_PROXY` 被设置，Electron 的渲染进程起不来 | `set NODE_USE_ENV_PROXY=` 后重试 |
+| 同上，且 `%APPDATA%` 不可写 | Chromium 无法创建 profile | 指定可写目录：`Eraser.exe --user-data-dir=D:\temp\eraser` |
+
+## 10. 出问题怎么报
 
 引擎日志在应用里点右上角「日志」就能看，也可以在 `%LOCALAPPDATA%\Eraser\logs\` 找到。
 报问题时请附上：

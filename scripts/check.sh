@@ -30,7 +30,7 @@ export ERASER_PYTHON="$PY"
 
 STEPS=4
 if [ "$FULL" = "1" ]; then
-  STEPS=8
+  STEPS=9
 fi
 
 echo "== [1/$STEPS] contract artifacts are in sync =="
@@ -61,13 +61,22 @@ if [ "$FULL" = "1" ]; then
   echo "== [7/$STEPS] built UI in a real browser, against the real engine =="
   node scripts/e2e-renderer.mjs
 
+  echo
+  echo "== [8/$STEPS] the real Electron app, end to end =="
+  if node scripts/e2e-desktop.mjs; then
+    :
+  else
+    echo "  (needs an interactive desktop session and a writable profile — see docs/08 §4)"
+    exit 1
+  fi
+
   if compgen -G "dist/installer/Eraser-Setup-*.exe" > /dev/null; then
     echo
-    echo "== [8/$STEPS] shipped installers: payload and engine =="
+    echo "== [9/$STEPS] shipped installers: payload and engine =="
     "$PY" scripts/e2e-installer.py
   else
     echo
-    echo "== [8/$STEPS] shipped installers: skipped (run scripts/release.py first)"
+    echo "== [9/$STEPS] shipped installers: skipped (run scripts/release.py first)"
   fi
 fi
 

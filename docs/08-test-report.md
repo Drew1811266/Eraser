@@ -87,7 +87,7 @@ Laplacian 能量 0.4 vs bicubic 0.2（确实更锐，不是单纯的放大）。
 
 | 项 | 原因 | 替代 |
 |---|---|---|
-| Electron 真实窗口 | 本会话里 Electron **渲染不了任何页面**：最小应用加载 `about:blank` 即以 `0x80000003` 崩溃。已排除窗口创建、GPU、JIT、sandbox、用户数据目录；`--single-process --in-process-gpu`、`--headless`、`--disable-gpu` 均无效 | `scripts/e2e-renderer.mjs`（真实浏览器 + 真实引擎）+ `electron/ipc.test.ts`（IPC/preload 契约） |
+| ~~Electron 真实窗口~~ | **已解决**：真正的原因是环境变量 `NODE_USE_ENV_PROXY=1`（会让 Electron 内嵌的 Node 改网络栈，渲染进程在首个页面前就崩）与 `%APPDATA%` 不可写（Chromium 无法建 profile）。去掉前者、把 profile 指到可写目录后，真实应用完整跑通 | 现在是第 8 道门禁：`node scripts/e2e-desktop.mjs`，11 项检查 |
 | NSIS 安装向导 | 同上，需要交互式桌面；`/S` 静默安装在此环境直接退出 | `scripts/e2e-installer.py`（解包 → 校验 → 跑包内引擎） |
 | 真机首次安装的 SmartScreen | 无证书，属已知且已接受的风险（`04-风险登记` R7） | 文档写明操作步骤 |
 | mac 黄金样本对比 | 需要在原 mac 机器上录制（`05-golden-set-runbook`） | 合成夹具 + 数值断言 + 分块/自一致性检查 |

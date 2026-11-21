@@ -31,8 +31,13 @@ if (!fs.existsSync(MAIN) || !fs.existsSync(RENDERER)) {
 }
 
 const env = { ...process.env };
-// Inherited from a shell that was itself started as node; Electron must not see it.
+// Two variables inherited from a node-shell break Chromium's startup:
+//   ELECTRON_RUN_AS_NODE=1  -> the Electron binary behaves as plain node
+//   NODE_USE_ENV_PROXY      -> electron's embedded node reconfigures the network
+//                              stack and the renderer dies with 0x80000003
+//                              before it ever loads a page.
 delete env.ELECTRON_RUN_AS_NODE;
+delete env.NODE_USE_ENV_PROXY;
 
 const child = spawn(ELECTRON, ['.'], { cwd: DESKTOP, stdio: 'inherit', env });
 child.on('exit', (code, signal) => {

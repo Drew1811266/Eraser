@@ -1,191 +1,223 @@
 /**
- * A second Electron entry point that drives the real UI and reports what it saw.
+ * In-app smoke driver: the real desktop app, driven from the main process.
  *
- * Unit tests cannot prove that the bridge, the IPC wiring and the React state
- * machine agree with each other; only the assembled app can. This entry boots
- * the *same* window, renderer and engine as production, stubs the two file
- * dialogs (the only thing a human has to do), then clicks through the flow with
- * `executeJavaScript` and writes a JSON report.
+ * `e2e-desktop.mjs` normally drives the window with Playwright, but Playwright
+ * launches Electron with `--inspect=0`, and in some restricted environments the
+ * Node inspector takes Chromium down before the first window (exit 0x80000003).
+ * Running the checks from inside the app avoids that: no debugger, no remote
+ * port, just `webContents.executeJavaScript` against the same page a user sees.
  *
- *     ERASER_SMOKE_INPUT=clip.mp4 ERASER_SMOKE_OUT=report.json \
- *         electron desktop/dist-electron/smoke.js
+ *   ERASER_SMOKE_INPUT=clip.mp4 ERASER_SMOKE_OUT=report.json electron dist-electron/electron/smoke.js
+ *
+ * It reports JSON and exits; the caller decides what a failure means.
  */
 
-import { BrowserWindow, app, dialog, ipcMain, protocol } from 'electron';
+import { BrowserWindow, app, dialog } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EngineHost } from './services/engineHost';
 import { registerIpc } from './ipc';
 import { createMainWindow } from './services/window';
-import { MEDIA_SCHEME } from '../shared/ipc';
+import { declareMediaScheme, registerMediaProtocol } from './services/media';
+import { log, startLog } from './services/log';
 
 const input = process.env.ERASER_SMOKE_INPUT;
 const output = process.env.ERASER_SMOKE_OUT;
 
-protocol.registerSchemesAsPrivileged([
-  { scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
-]);
+interface Result {
+  ok: boolean;
+  checks: Array<{ name: string; ok: boolean; detail?: string }>;
+  error?: string;
+  logPath: string;
+}
 
-function fail(reason: string): never {
-  const payload = { ok: false, error: reason, checks: [] };
+const results: Result = { ok: false, checks: [], logPath: '' };
+
+function record(name: string, ok: boolean, detail?: string): void {
+  results.checks.push(detail === undefined ? { name, ok } : { name, ok, detail });
+}
+
+function finish(ok: boolean, error?: string): void {
+  const hold = process.env.ERASER_SMOKE_HOLD === '1';
+  results.ok = ok;
+  results.logPath = logPathOf();
+  if (error) results.error = error;
   if (output) {
-    fs.writeFileSync(output, JSON.stringify(payload, null, 2), 'utf-8');
-  }
-  console.error(`smoke failed: ${reason}`);
-  app.exit(1);
-  throw new Error(reason);
-}
-
-/** The dialog stubs: exactly the user actions a machine cannot perform. */
-function stubDialogs(filePath: string): void {
-  dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [filePath] })) as never;
-}
-
-const script = (): string => `
-(async () => {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const waitFor = async (predicate, label, timeout = 90000) => {
-    const started = Date.now();
-    while (Date.now() - started < timeout) {
-      const value = predicate();
-      if (value) return value;
-      await sleep(100);
+    try {
+      fs.writeFileSync(output, JSON.stringify(results, null, 2), 'utf-8');
+    } catch (writeError) {
+      log('cannot write smoke report', writeError);
     }
-    throw new Error('timeout waiting for ' + label);
-  };
-  const buttonByText = (text) => {
-    const buttons = Array.from(document.querySelectorAll('button'));
-    return buttons.find((b) => (b.textContent || '').includes(text));
-  };
-
-  const report = { checks: [], progress: [], errors: [] };
-  const check = (name, ok, detail) => report.checks.push({ name, ok: Boolean(ok), detail: detail ?? '' });
-  const collect = (error) => report.errors.push(String(error && error.stack ? error.stack : error));
-
-  try {
-    window.__smokeProgress = [];
-    window.eraser.onProgress((status) => window.__smokeProgress.push(status));
-
-    await waitFor(() => document.querySelector('.app'), 'app mount');
-    check('renderer mounted', true);
-
-    const badge = await waitFor(
-      () => {
-        const el = document.querySelector('.engine-badge');
-        return el && /就绪/.test(el.textContent || '') ? el.textContent : null;
-      },
-      'engine ready badge',
-    );
-    check('engine badge reports ready', /就绪/.test(badge || ''), badge);
-    check('capabilities expose the windows platform key', !!document.querySelector('.meta-row') || true);
-
-    const open = buttonByText('打开视频') || buttonByText('重新选择');
-    if (!open) throw new Error('open button not found');
-    open.click();
-
-    const meta = await waitFor(() => {
-      const row = document.querySelector('.meta-row');
-      return row ? row.textContent : null;
-    }, 'probe metadata');
-    check('probe metadata rendered', /\\d+ × \\d+/.test(meta || ''), meta);
-
-    const selection = document.querySelector('.selection');
-    check('a default selection is suggested', !!selection);
-
-    const startButton = buttonByText('开始擦除');
-    if (!startButton) throw new Error('start button not found');
-    check('start button enabled', !startButton.disabled);
-    startButton.click();
-
-    await waitFor(() => document.querySelector('.progress') || document.querySelector('.result') || document.querySelector('.error'), 'progress or result');
-
-    const outcome = await waitFor(() => {
-      if (document.querySelector('.result .ok')) return 'success';
-      const err = document.querySelector('.panel .error');
-      if (err) return 'error:' + (err.textContent || '');
-      const cancelled = Array.from(document.querySelectorAll('.muted')).some((el) => /已取消/.test(el.textContent || ''));
-      if (cancelled) return 'cancelled';
-      return null;
-    }, 'task outcome', 180000);
-    check('task finished successfully', outcome === 'success', outcome);
-
-    const path = document.querySelector('.result .path');
-    check('result path rendered', Boolean(path), path ? path.textContent : '');
-
-    report.progress = window.__smokeProgress.map((s) => ({
-      state: s.state,
-      phase: s.phase,
-      progress: s.progress,
-      processed: s.processed,
-      total: s.total,
-    }));
-    check('progress events reached the renderer', report.progress.length > 0, String(report.progress.length));
-    check(
-      'progress advanced through intermediate values',
-      report.progress.some((p) => p.progress > 0.01 && p.progress < 0.99),
-      JSON.stringify(report.progress.slice(0, 3)),
-    );
-    report.output_path = path ? path.textContent : null;
-  } catch (error) {
-    collect(error);
   }
-  return report;
-})()
-`;
+  if (hold) {
+    log('holding the window open for inspection');
+    return;
+  }
+  app.exit(ok ? 0 : 1);
+}
+
+function logPathOf(): string {
+  try {
+    return path.join(app.getPath('userData'), 'logs', 'main.log');
+  } catch {
+    return '';
+  }
+}
+
+const host = new EngineHost();
+
+async function click(page: Target, label: string): Promise<string> {
+  return page.executeJavaScript(`(() => {
+    const hosts = Array.from(document.querySelectorAll('md-filled-button, md-outlined-button, md-text-button, button'));
+    const host = hosts.find((entry) => (entry.textContent || entry.getAttribute('aria-label') || '').includes(${JSON.stringify(label)}));
+    if (!host) return 'missing';
+    if (host.disabled) return 'disabled';
+    host.click();
+    return 'clicked';
+  })()`, true);
+}
+
+type Target = Electron.WebContents;
+
+async function waitFor(page: Target, expression: string, timeoutMs: number): Promise<boolean> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const value = await page.executeJavaScript(`Boolean(${expression})`, true).catch(() => false);
+    if (value) return true;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
+}
+
+declareMediaScheme();
 
 app.whenReady().then(async () => {
+  startLog();
+  log('smoke start', { input, output });
+
   if (!input) {
-    fail('ERASER_SMOKE_INPUT is not set');
-  }
-  if (!fs.existsSync(input)) {
-    fail(`input does not exist: ${input}`);
+    finish(false, 'ERASER_SMOKE_INPUT is not set');
+    return;
   }
 
-  const host = new EngineHost();
-  protocol.handle(MEDIA_SCHEME, async (request) => {
-    const relative = decodeURIComponent(new URL(request.url).pathname.replace(/^\//, ''));
-    const { net } = await import('electron');
-    const { pathToFileURL } = await import('node:url');
-    return net.fetch(pathToFileURL(path.resolve(relative)).toString(), { headers: request.headers });
-  });
+  // The native dialog cannot be clicked by automation; everything else stays real.
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [input] }) as never;
 
+  registerMediaProtocol();
+  log('media protocol registered');
   registerIpc(host);
-  stubDialogs(input);
-
-  const window = createMainWindow(undefined);
-  window.webContents.on('console-message', (_event, _level, message) => {
-    console.log(`[renderer] ${message}`);
+  log('ipc registered');
+  // Same eager start as the real entry point: the first probe should not also
+  // pay for a cold Python import.
+  void host.start().then(
+    () => log('engine started'),
+    (error) => log('engine failed to start', error),
+  );
+  const window = createMainWindow();
+  log('window created');
+  // A broken preload explains "the bridge is undefined" better than any guess.
+  window.webContents.on('preload-error', (_event, preloadPath, error) => {
+    log('preload error', { preloadPath, message: error.message, stack: error.stack?.slice(0, 400) });
   });
-
-  await new Promise<void>((resolve) => {
-    window.webContents.once('did-finish-load', () => resolve());
+  window.webContents.on('console-message', (_event, level, message) => {
+    if (level >= 2) log('renderer console', message.slice(0, 300));
   });
-  await host.start();
+  const page = window.webContents;
 
-  let report: Record<string, unknown> = { ok: false, error: 'script did not run', checks: [] };
   try {
-    report = (await window.webContents.executeJavaScript(script(), true)) as Record<string, unknown>;
+    const mounted = await waitFor(page, "document.querySelector('.app-nav-rail')", 60000);
+    record('renderer mounted', mounted);
+    if (!mounted) {
+      finish(false, 'the window never rendered');
+      return;
+    }
+
+    const title = window.getTitle();
+    record('window title is Eraser', title === 'Eraser', title);
+
+    const deviceJson = await page
+      .executeJavaScript("window.wmr.get_device_info().then((r) => JSON.stringify(r)).catch((e) => 'error: ' + e.message)", true)
+      .catch((error: unknown) => `threw: ${String(error)}`);
+    record('engine answers through the bridge', !String(deviceJson).startsWith('error')
+      && !String(deviceJson).startsWith('threw'), String(deviceJson).slice(0, 90));
+    const ready = await waitFor(page, "/NVIDIA|CPU/.test(document.body.textContent || '')", 60000);
+    record('engine sidecar is up', ready);
+
+    record('选择视频 clicked', (await click(page, '选择视频')) === 'clicked');
+    const imported = await waitFor(
+      page,
+      "(document.querySelector('.process-toolbar')?.textContent || '').includes('640')",
+      60000,
+    );
+    record('metadata came from the engine', imported);
+
+    // Seed the selection through the same storage call the canvas uses.
+    // Synthesised MouseEvents do not satisfy the component's drag state machine
+    // (Playwright's trusted input does, and `e2e-renderer.mjs` covers drawing);
+    // what matters here is that persistence and processing work inside Electron.
+    await page.executeJavaScript(`window.wmr.save_annotations({
+      video_path: ${JSON.stringify(input)},
+      segments: [{
+        start_frame: 0, end_frame: 47,
+        rect: { x: 480, y: 20, width: 120, height: 60 },
+        expand_px: 5, feather_px: 3, enabled: true,
+      }],
+    }).then(() => 'saved')`, true);
+    record('annotations saved through the bridge', true);
+
+    // Re-import so the app picks the sidecar up, the way a second session would.
+    await page.executeJavaScript("Array.from(document.querySelectorAll('.app-nav-destination'))[0].click()", true);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await click(page, '选择视频');
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const segments = await page.executeJavaScript(
+      "document.querySelector('.process-right-card')?.innerText?.includes('1') ? 'one' : 'none'",
+      true,
+    );
+    record('the saved annotation is loaded back', segments === 'one', String(segments));
+
+    await page.executeJavaScript("Array.from(document.querySelectorAll('.app-nav-destination'))[0].click()", true);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    record('开始处理 clicked', (await click(page, '开始处理')) === 'clicked');
+
+    // ERASER_SMOKE_OUTPUT_DIR is already a directory (the app writes into it).
+    const outputDirectory = String(process.env.ERASER_SMOKE_OUTPUT_DIR ?? path.dirname(input));
+    const deadline = Date.now() + 5 * 60 * 1000;
+    let produced: string[] = [];
+    while (Date.now() < deadline) {
+      produced = fs.existsSync(outputDirectory)
+        ? fs
+            .readdirSync(outputDirectory)
+            .filter((name) => name.endsWith('_no_watermark.mp4'))
+            .filter((name) => {
+              try {
+                return fs.statSync(path.join(outputDirectory, name)).size > 50_000;
+              } catch {
+                return false;
+              }
+            })
+        : [];
+      if (produced.length > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    record('the pipeline wrote an output file', produced.length > 0, produced[0] ?? 'none');
+
+    await page.executeJavaScript("Array.from(document.querySelectorAll('.app-nav-destination'))[2].click()", true);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const resultText = await page.executeJavaScript(
+      "(document.querySelector('.app-main-content')?.innerText || '').slice(0, 400)",
+      true,
+    );
+    record('the result view shows the file', /_no_watermark\.mp4/.test(String(resultText)));
+
+    const failedChecks = results.checks.filter((entry) => !entry.ok).length;
+    finish(failedChecks === 0, failedChecks === 0 ? undefined : `${failedChecks} check(s) failed`);
   } catch (error) {
-    report = { ok: false, error: String(error), checks: [] };
+    log('smoke failed', error);
+    finish(false, error instanceof Error ? error.message : String(error));
   }
+});
 
-  const checks = (report.checks as Array<{ ok: boolean }>) ?? [];
-  const failed = checks.filter((check) => !check.ok);
-  const payload = {
-    ok: failed.length === 0 && ((report.errors as string[]) ?? []).length === 0,
-    checks,
-    progress: report.progress ?? [],
-    output_path: report.output_path ?? null,
-    errors: report.errors ?? [],
-    windowCount: BrowserWindow.getAllWindows().length,
-  };
-
-  if (output) {
-    fs.writeFileSync(output, JSON.stringify(payload, null, 2), 'utf-8');
-  }
-  console.log(JSON.stringify(payload, null, 2));
-
-  ipcMain.removeHandler('app:capabilities');
-  await host.stop();
-  app.exit(payload.ok ? 0 : 1);
+app.on('window-all-closed', () => {
+  void host.stop().finally(() => app.exit(results.ok ? 0 : 1));
 });

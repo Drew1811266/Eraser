@@ -1,166 +1,116 @@
 #!/usr/bin/env node
 /**
- * Drives the assembled desktop app through the real user flow.
+ * Drive the assembled desktop app through the whole user flow.
  *
- * The engine test proves the pipeline; this proves the *app*: the preload
- * bridge, the IPC handlers, the React state machine and the progress plumbing
- * all have to agree before a single check passes.
+ * This is the real thing: a real Electron window, the real preload bridge, the
+ * real IPC handlers, the real engine sidecar and the ported UI. Only the native
+ * file dialog is replaced, because no automation can click one.
+ *
+ * The driving happens *inside* the app (`dist-electron/electron/smoke.js`)
+ * rather than through Playwright: Playwright launches Electron with
+ * `--inspect=0`, and in this environment the Node inspector takes Chromium down
+ * before the first window appears (exit 0x80000003). No debugger, no problem.
  *
  *   node scripts/e2e-desktop.mjs [--keep]
+ *
+ * Needs an interactive desktop session. Where there is none, use
+ * `scripts/e2e-renderer.mjs`: same UI, same engine, browser harness instead.
  */
 
-import { spawn, spawnSync } from 'node:child_process';
-import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DESKTOP = path.join(ROOT, 'desktop');
 const CACHE = path.join(ROOT, '.cache');
 const FIXTURE = path.join(CACHE, 'fixture.mp4');
+const OUT_DIR = path.join(CACHE, 'desktop-out');
 const REPORT = path.join(CACHE, 'desktop-smoke.json');
 const PYTHON = process.env.ERASER_PYTHON ?? path.join(ROOT, '.venv', 'Scripts', 'python.exe');
-
 const keep = process.argv.includes('--keep');
 
-function log(message) {
-  process.stdout.write(`${message}\n`);
-}
+const ELECTRON = path.join(DESKTOP, 'node_modules', 'electron', 'dist', 'electron.exe');
+const ENTRY = path.join(DESKTOP, 'dist-electron', 'electron', 'smoke.js');
 
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { encoding: 'utf-8', ...options });
-  if (result.status !== 0) {
-    throw new Error(`${command} exited ${result.status}\n${result.stdout ?? ''}\n${result.stderr ?? ''}`);
-  }
-  return result;
-}
-
-function runShell(command, cwd) {
-  const result = spawnSync(command, { cwd, shell: true, encoding: 'utf-8' });
-  if (result.status !== 0) {
-    throw new Error(`${command} exited ${result.status}\n${result.stdout ?? ''}\n${result.stderr ?? ''}`);
-  }
-  return result;
-}
-
-function ensureFixture() {
-  if (fs.existsSync(FIXTURE)) {
-    log(`fixture   ${FIXTURE}`);
-    return;
-  }
-  log('fixture   building…');
-  run(PYTHON, [path.join(ROOT, 'scripts', 'e2e-video.py'), '--fixture-only', '--fixture', FIXTURE]);
-  log(`fixture   ${FIXTURE}`);
-}
-
-/**
- * The host sets ELECTRON_RUN_AS_NODE for its own tooling, which turns Electron
- * into plain Node — no app, no protocol, no BrowserWindow. Delete the key; an
- * empty value still counts as set.
- */
-function childEnv() {
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  env.ERASER_SMOKE_INPUT = FIXTURE;
-  env.ERASER_SMOKE_OUT = REPORT;
-  env.ERASER_PYTHON = PYTHON;
-  env.ELECTRON_DISABLE_SECURITY_WARNINGS = '1';
-  return env;
-}
-
-function electronBinary() {
-  const require = createRequire(path.join(DESKTOP, 'package.json'));
-  const resolved = require('electron');
-  return typeof resolved === 'string' ? resolved : null;
-}
-
-function main() {
-  fs.mkdirSync(CACHE, { recursive: true });
-  ensureFixture();
-
-  log('build     transpiling');
-  // One shell string: `npm` is a .cmd on Windows and spawning the wrapper
-  // directly fails with a null status.
-  runShell('npm run build', DESKTOP);
-
-  const binary = electronBinary();
-  if (!binary || !fs.existsSync(binary)) {
-    throw new Error('electron binary not found; run npm install in desktop/');
-  }
-
-  fs.rmSync(REPORT, { force: true });
-  const entry = path.join(DESKTOP, 'dist-electron', 'electron', 'smoke.js');
-
-  log('launch    electron');
-  // --no-sandbox is needed in restricted/CI sessions; it only affects the test run.
-  const child = spawn(binary, ['--no-sandbox', entry], {
-    cwd: DESKTOP,
-    env: childEnv(),
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  let stdout = '';
-  let stderr = '';
-  child.stdout.on('data', (chunk) => {
-    stdout += chunk.toString();
-  });
-  child.stderr.on('data', (chunk) => {
-    stderr += chunk.toString();
-  });
-
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error('smoke test timed out after 10 minutes'));
-    }, 10 * 60 * 1000);
-
-    child.on('exit', (code) => {
-      clearTimeout(timer);
-      try {
-        const report = JSON.parse(fs.readFileSync(REPORT, 'utf-8'));
-        printReport(report);
-        resolve(report.ok ? 0 : 1);
-      } catch (error) {
-        process.stderr.write(stdout.slice(-4000));
-        process.stderr.write(stderr.slice(-8000));
-        reject(new Error(`smoke report missing (exit ${code}): ${error.message}`));
-      }
-    });
-  });
-}
-
-function printReport(report) {
-  for (const check of report.checks ?? []) {
-    const status = check.ok ? 'PASS' : 'FAIL';
-    const detail = check.detail ? ` (${String(check.detail).slice(0, 120)})` : '';
-    log(`  [${status}] ${check.name}${detail}`);
-  }
-  const passed = (report.checks ?? []).filter((check) => check.ok).length;
-  const total = (report.checks ?? []).length;
-  log('');
-  log(`  progress events: ${(report.progress ?? []).length}`);
-  if (report.output_path) {
-    log(`  output: ${report.output_path}`);
-  }
-  for (const error of report.errors ?? []) {
-    log(`  error: ${String(error).split('\n')[0]}`);
-  }
-  log('');
-  log(`${passed}/${total} checks passed`);
-  if (!keep && report.output_path) {
-    try {
-      fs.rmSync(path.dirname(report.output_path), { recursive: true, force: true });
-    } catch {
-      // best effort
+async function main() {
+  for (const required of [FIXTURE, ENTRY, ELECTRON]) {
+    if (!fs.existsSync(required)) {
+      throw new Error(`missing ${required} — build the app and generate the fixture first`);
     }
   }
+  fs.rmSync(OUT_DIR, { recursive: true, force: true });
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  fs.rmSync(REPORT, { force: true });
+
+  const env = { ...process.env };
+  // See scripts/run.mjs: these two kill Chromium before it loads a page.
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_USE_ENV_PROXY;
+  env.ERASER_PYTHON = PYTHON;
+  env.ERASER_SMOKE_INPUT = FIXTURE;
+  env.ERASER_SMOKE_OUT = REPORT;
+  env.ERASER_SMOKE_OUTPUT_DIR = OUT_DIR;
+
+  // A profile inside the workspace: this sandbox cannot write %APPDATA%, and
+  // Chromium aborts before the first window when it cannot create its profile.
+  const profile = path.join(CACHE, 'desktop-profile');
+  fs.rmSync(profile, { recursive: true, force: true });
+  // Settings live in the app's profile; seed the output directory so the check
+  // knows where to look instead of hunting through the user's Downloads.
+  fs.mkdirSync(profile, { recursive: true });
+  fs.writeFileSync(
+    path.join(profile, 'settings.json'),
+    JSON.stringify({ language: 'zh', theme: 'light', output: { path: OUT_DIR, model_id: 'lama_roi' } }, null, 2),
+    'utf-8',
+  );
+
+  console.log('launching the desktop app');
+
+  const exitCode = await new Promise((resolve) => {
+    // `--no-sandbox` is for this harness only: its process token cannot start
+    // Chromium's sandbox here, and the app dies before the first window.
+    const child = spawn(ELECTRON, ['--no-sandbox', `--user-data-dir=${profile}`, ENTRY], {
+      cwd: DESKTOP,
+      env,
+      stdio: ['ignore', 'inherit', 'inherit'],
+    });
+    const timer = setTimeout(() => {
+      console.error('the app did not finish within 10 minutes');
+      child.kill();
+    }, 10 * 60 * 1000);
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      resolve(code ?? 1);
+    });
+  });
+
+  if (!fs.existsSync(REPORT)) {
+    console.error(`no smoke report (app exited ${exitCode}) — see .cache/desktop-smoke.json`);
+    return 1;
+  }
+
+  const report = JSON.parse(fs.readFileSync(REPORT, 'utf-8'));
+  for (const entry of report.checks) {
+    const status = entry.ok ? 'PASS' : 'FAIL';
+    console.log(`  [${status}] ${entry.name}${entry.detail ? ` (${entry.detail})` : ''}`);
+  }
+  const failed = report.checks.filter((entry) => !entry.ok).length;
+  const passed = report.checks.length - failed;
+
+  if (report.error) console.error(`  error: ${report.error}`);
+  console.log('');
+  console.log(`${passed} passed, ${failed} failed`);
+  console.log(`app log: ${report.logPath}`);
+
+  if (!keep) fs.rmSync(OUT_DIR, { recursive: true, force: true });
+  return failed === 0 ? 0 : 1;
 }
 
 try {
-  const code = await main();
-  process.exit(code);
+  process.exit(await main());
 } catch (error) {
-  process.stderr.write(`${error.message}\n`);
+  console.error(error);
   process.exit(1);
 }

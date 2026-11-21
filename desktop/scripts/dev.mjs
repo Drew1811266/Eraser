@@ -82,8 +82,10 @@ const electron = start(ELECTRON, ['.'], {
   cwd: DESKTOP,
   env: {
     ...process.env,
-    // The host sets this for node-as-electron; Electron itself must not see it.
+    // The host sets these for node-as-electron; Electron itself must not see
+    // them (see scripts/run.mjs for what they break).
     ELECTRON_RUN_AS_NODE: undefined,
+    NODE_USE_ENV_PROXY: undefined,
     ERASER_DEV_SERVER: DEV_URL,
   },
 });
