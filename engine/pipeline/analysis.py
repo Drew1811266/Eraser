@@ -373,3 +373,70 @@ def classify_motion(track: WatermarkTrack, *, frame_width: int, frame_height: in
     if grows > 1.15:
         return "moving"
     return "static"
+
+
+ENGINE_FAST = "lama_roi"
+ENGINE_QUALITY = "propainter_roi"
+
+
+def build_shots(cuts: list[float], *, fps: float, frame_count: int) -> list[Interval]:
+    """Turn cut timestamps into frame intervals covering the whole clip.
+
+    Degenerate input (no frames, cuts outside the clip) must still yield at
+    least one shot: the analysis report has to show something for a 1-frame
+    video rather than an empty timeline.
+    """
+    total = max(1, int(frame_count))
+    last = total - 1
+    if last <= 0:
+        return [Interval(0, 0)]
+
+    boundaries = [0]
+    for cut in sorted(float(item) for item in cuts):
+        if fps <= 0:
+            continue
+        frame = int(round(cut * fps))
+        if 0 < frame <= last and frame - boundaries[-1] > 0:
+            boundaries.append(frame)
+    # Exclusive upper bound: the last shot must *include* the final frame, so a
+    # 100-frame clip is (0, 99) and not (0, 98).
+    if boundaries[-1] != last + 1:
+        boundaries.append(last + 1)
+
+    shots: list[Interval] = []
+    for index in range(len(boundaries) - 1):
+        start = boundaries[index]
+        end = boundaries[index + 1] - 1
+        if end >= start:
+            shots.append(Interval(start, end))
+    return shots or [Interval(0, 0)]
+
+
+def suggest_strategy(
+    shots: list[Interval],
+    watermarks: list[WatermarkTrack],
+    *,
+    engines: list[str] | None = None,
+) -> dict[str, Any]:
+    """Advice for the confirmation screen. Never a decision on the user's behalf."""
+    available = list(engines) if engines is not None else [ENGINE_FAST]
+    warnings: list[str] = []
+
+    if not watermarks:
+        warnings.append("no_watermark")
+        return {"engine_id": ENGINE_FAST, "split_by_shot": False, "warnings": warnings}
+
+    moves = any(item.motion == "moving" for item in watermarks)
+    multi_shot = len(shots) > 1
+    if moves:
+        warnings.append("moving_watermark")
+
+    wants_quality = moves or multi_shot
+    engine = ENGINE_FAST
+    if wants_quality:
+        if ENGINE_QUALITY in available:
+            engine = ENGINE_QUALITY
+        else:
+            warnings.append("quality_engine_unavailable")
+
+    return {"engine_id": engine, "split_by_shot": multi_shot, "warnings": warnings}
