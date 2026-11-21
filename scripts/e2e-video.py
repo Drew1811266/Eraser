@@ -70,7 +70,7 @@ def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
     )
 
 
-def background(width: int, height: int, phase: float) -> np.ndarray:
+def background(width: int = WIDTH, height: int = HEIGHT, phase: float = 0.0) -> np.ndarray:
     """Smooth two-axis gradient; `phase` slides it so frames are not identical."""
     xs = np.linspace(0.0, 1.0, width, dtype=np.float32)[None, :]
     ys = np.linspace(0.0, 1.0, height, dtype=np.float32)[:, None]
@@ -81,8 +81,8 @@ def background(width: int, height: int, phase: float) -> np.ndarray:
     return np.clip(frame, 0, 255)
 
 
-def paint_watermark(frame: np.ndarray) -> np.ndarray:
-    x, y, w, h = WATERMARK
+def paint_watermark(frame: np.ndarray, rect: tuple[int, int, int, int] = WATERMARK) -> np.ndarray:
+    x, y, w, h = rect
     frame[y : y + h, x : x + w] = WATERMARK_RGB
     # A white glyph, so the region is not a single flat colour: a model that
     # merely blurs the area would keep a visible blob here.
@@ -90,22 +90,32 @@ def paint_watermark(frame: np.ndarray) -> np.ndarray:
     return frame
 
 
-def make_fixture(path: Path) -> None:
+def make_fixture(
+    path: Path,
+    width: int = WIDTH,
+    height: int = HEIGHT,
+    frames: int = FRAMES,
+    fps: int = FPS,
+    rect: tuple[int, int, int, int] = WATERMARK,
+    audio: bool = False,
+) -> None:
+    """Encode the synthetic clip; optionally mux a tone so audio survives the trip."""
+    silent = path.with_name(f"{path.stem}_silent.mp4") if audio else path
     command = [
         str(FFMPEG), "-y",
         "-f", "rawvideo", "-pix_fmt", "rgb24",
-        "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS),
+        "-s", f"{width}x{height}", "-r", str(fps),
         "-i", "-",
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
         "-pix_fmt", "yuv420p",
-        str(path),
+        str(silent),
     ]
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                stderr=subprocess.PIPE)
     try:
-        for index in range(FRAMES):
-            frame = background(WIDTH, HEIGHT, 6.0 * index / FRAMES)
-            frame = paint_watermark(frame)
+        for index in range(frames):
+            frame = background(width, height, 6.0 * index / frames)
+            frame = paint_watermark(frame, rect)
             process.stdin.write(frame.astype(np.uint8).tobytes())
         process.stdin.close()
     finally:
@@ -114,21 +124,35 @@ def make_fixture(path: Path) -> None:
     if code != 0:
         raise SystemExit(f"fixture encode failed: {stderr[-800:]}")
 
+    if audio:
+        duration = frames / fps
+        mixed = run([
+            str(FFMPEG), "-y", "-v", "error",
+            "-i", str(silent),
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration:.3f}",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k", "-shortest",
+            str(path),
+        ])
+        silent.unlink(missing_ok=True)
+        if mixed.returncode != 0:
+            raise SystemExit(f"audio mux failed: {mixed.stderr.decode('utf-8', 'replace')[-500:]}")
+
 
 def probe(path: Path) -> dict:
     result = run([
-        str(FFPROBE), "-v", "error", "-select_streams", "v:0",
-        "-show_entries", "stream=width,height,r_frame_rate,nb_frames",
+        str(FFPROBE), "-v", "error",
+        "-show_entries", "stream=codec_type,width,height,r_frame_rate,nb_frames",
         "-of", "json", str(path),
     ])
     streams = json.loads(result.stdout.decode("utf-8", "replace"))["streams"]
-    stream = streams[0]
-    numerator, denominator = stream["r_frame_rate"].split("/")
+    video = next(stream for stream in streams if stream.get("codec_type") == "video")
+    numerator, denominator = video["r_frame_rate"].split("/")
     return {
-        "width": int(stream["width"]),
-        "height": int(stream["height"]),
+        "width": int(video["width"]),
+        "height": int(video["height"]),
         "fps": float(numerator) / float(denominator or 1),
-        "frames": int(stream.get("nb_frames") or 0),
+        "frames": int(video.get("nb_frames") or 0),
+        "has_audio": any(stream.get("codec_type") == "audio" for stream in streams),
     }
 
 
@@ -232,6 +256,101 @@ def region_diff(left: np.ndarray, right: np.ndarray, box: tuple[int, int, int, i
     a = left[y : y + h, x : x + w].astype(np.float32)
     b = right[y : y + h, x : x + w].astype(np.float32)
     return float(np.abs(a - b).mean())
+
+
+
+def wait_for_task(engine: Engine, task_id: str, timeout: float) -> dict:
+    """Poll until the task reaches a terminal state."""
+    deadline = time.monotonic() + timeout
+    status: dict = {}
+    while time.monotonic() < deadline:
+        status = engine.request("process.status", {"task_id": task_id}, timeout=30)
+        if status.get("state") in {"success", "failed", "cancelled"}:
+            return status
+        engine.pump(timeout=0.2)
+    return status
+
+
+def scenario_audio(workdir: Path, python: str) -> None:
+    """A portrait clip with an audio track: the mux path, not just the encoder."""
+    print("5. portrait clip with audio survives the trip")
+    width, height, frames = 360, 640, 24
+    rect = (210, 30, 100, 50)
+    source = workdir / "portrait.mp4"
+    output_dir = workdir / "portrait-out"
+    output_dir.mkdir(exist_ok=True)
+    make_fixture(source, width=width, height=height, frames=frames, rect=rect, audio=True)
+
+    info = probe(source)
+    check("fixture is portrait", (info["width"], info["height"]) == (width, height),
+          f"{info['width']}x{info['height']}")
+    check("fixture carries an audio track", info["has_audio"])
+
+    engine = Engine(python, ROOT)
+    try:
+        task = engine.request("process.start", {
+            "input_path": str(source),
+            "output_dir": str(output_dir),
+            "segments": [{
+                "start_frame": 0,
+                "end_frame": frames - 1,
+                "rect": {"x": rect[0], "y": rect[1], "width": rect[2], "height": rect[3]},
+                "expand_px": EXPAND_PX,
+                "feather_px": 3,
+                "enabled": True,
+            }],
+        }, timeout=30)
+        status = wait_for_task(engine, task["task_id"], timeout=300)
+    finally:
+        engine.close()
+
+    check("portrait job succeeded", status.get("state") == "success", str(status.get("state")))
+    output = output_dir / "portrait_no_watermark.mp4"
+    check("portrait output exists", output.is_file())
+    if not output.is_file():
+        return
+    result = probe(output)
+    check("portrait geometry preserved", (result["width"], result["height"]) == (width, height),
+          f"{result['width']}x{result['height']}")
+    check("portrait frame count preserved", result["frames"] == frames, str(result["frames"]))
+    check("audio track survived the pipeline", result["has_audio"])
+
+
+def scenario_cancel(workdir: Path, python: str, source: Path) -> None:
+    """Cancelling must stop the work, not just relabel it."""
+    print("6. cancel actually stops the run")
+    output_dir = workdir / "cancel-out"
+    output_dir.mkdir(exist_ok=True)
+
+    engine = Engine(python, ROOT)
+    try:
+        started = time.monotonic()
+        task = engine.request("process.start", {
+            "input_path": str(source),
+            "output_dir": str(output_dir),
+            "segments": [{
+                "start_frame": 0,
+                "end_frame": FRAMES - 1,
+                "rect": {"x": WATERMARK[0], "y": WATERMARK[1],
+                         "width": WATERMARK[2], "height": WATERMARK[3]},
+                "expand_px": EXPAND_PX,
+                "feather_px": 3,
+                "enabled": True,
+            }],
+        }, timeout=30)
+        time.sleep(1.5)
+        engine.request("process.cancel", {"task_id": task["task_id"]}, timeout=30)
+        status = wait_for_task(engine, task["task_id"], timeout=120)
+        elapsed = time.monotonic() - started
+    finally:
+        engine.close()
+
+    check("task reports cancelled", status.get("state") == "cancelled", str(status.get("state")))
+    check("cancel returns control quickly", elapsed < 90, f"{elapsed:.1f}s")
+    output = output_dir / "fixture_no_watermark.mp4"
+    partial = output.is_file() and output.stat().st_size > 0
+    check("no half-written result is left behind", not partial,
+          f"{output.stat().st_size} bytes" if output.is_file() else "absent")
 
 
 def main() -> int:
@@ -393,6 +512,10 @@ def main() -> int:
     worst = max(collateral)
     check("pixels outside the mask are untouched", worst < 8.0,
           f"worst mean |delta| {worst:.2f} over {len(collateral)} frames")
+
+    scenario_audio(workdir, args.python)
+    print()
+    scenario_cancel(workdir, args.python, source)
 
     print()
     print(f"{passed} passed, {failed} failed")
