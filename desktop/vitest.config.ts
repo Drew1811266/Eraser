@@ -16,5 +16,8 @@ export default defineConfig({
     setupFiles: [path.resolve(__dirname, 'renderer', 'test-setup.ts')],
     include: ['renderer/**/*.test.ts', 'renderer/**/*.test.tsx', 'electron/**/*.test.ts'],
     exclude: ['node_modules/**', 'dist-electron/**', 'dist-renderer/**'],
+    // The ported reference UI ships its own tests; the hand-written ones covered
+    // the shell that replaced it. Do not let an empty selection look green.
+    passWithNoTests: false,
   },
 });

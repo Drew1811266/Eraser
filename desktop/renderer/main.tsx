@@ -1,15 +1,15 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import { App } from './App';
+// 前端入口文件：
+// 1) 挂载根组件 App
+// 2) 引入全局样式
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+
+import App from './App';
 import './styles.css';
 
-const container = document.getElementById('root');
-if (!container) {
-  throw new Error('missing #root');
-}
-
-createRoot(container).render(
-  <StrictMode>
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+  // StrictMode 只在开发期提供额外检查，不影响生产功能逻辑。
+  <React.StrictMode>
     <App />
-  </StrictMode>,
+  </React.StrictMode>,
 );

@@ -58,13 +58,25 @@ def _normalize_rect(rect: dict[str, Any], width: int, height: int) -> dict[str, 
 
 def normalize_segments(
     segments: list[Any],
-    video: dict[str, Any],
+    video: dict[str, Any] | None = None,
     now: Clock = _now_iso,
 ) -> list[dict[str, Any]]:
-    width = _coerce_int(video.get("width", 0), 0)
-    height = _coerce_int(video.get("height", 0), 0)
-    frame_count = _coerce_int(video.get("frame_count", 0), 0)
+    """Validate segments, clamping them to the frame range when it is known.
+
+    `video` is optional because storage does not always have the media at hand
+    (reading a sidecar for a file that was moved, for instance). Clamping without
+    it would silently collapse every range to frame 0, which is worse than
+    keeping what was stored, so it is skipped when the geometry is unknown.
+    """
+    info = video or {}
+    width = _coerce_int(info.get("width", 0), 0)
+    height = _coerce_int(info.get("height", 0), 0)
+    frame_count = _coerce_int(info.get("frame_count", 0), 0)
     max_frame = max(0, frame_count - 1)
+    # No geometry at all means "unknown", not "zero-length": clamping would
+    # destroy stored ranges. A caller that passes a video dict is telling us the
+    # truth, so its numbers are honoured even when they are degenerate.
+    clamp_frames = video is not None
     timestamp = now()
 
     normalized: list[dict[str, Any]] = []
@@ -77,8 +89,12 @@ def normalize_segments(
 
         start_frame = _coerce_int(item.get("start_frame", 0), 0)
         end_frame = _coerce_int(item.get("end_frame", start_frame), start_frame)
-        start_frame = max(0, min(start_frame, max_frame))
-        end_frame = max(0, min(end_frame, max_frame))
+        if clamp_frames:
+            start_frame = max(0, min(start_frame, max_frame))
+            end_frame = max(0, min(end_frame, max_frame))
+        else:
+            start_frame = max(0, start_frame)
+            end_frame = max(0, end_frame)
         if end_frame < start_frame:
             start_frame, end_frame = end_frame, start_frame
 

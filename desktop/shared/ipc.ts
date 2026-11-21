@@ -121,7 +121,33 @@ export function mediaUrl(absolutePath: string): string {
   return `${MEDIA_SCHEME}://local/${encodeURIComponent(absolutePath)}`;
 }
 
-/** Everything the preload script puts on `window.eraser`. */export interface EraserBridge {
+/**
+ * The method surface the ported reference frontend expects on `window.wmr`.
+ *
+ * Kept as data rather than 31 hand-written wrappers: the preload turns each name
+ * into a tunnel to `wmr:call`, and the main process implements them in one
+ * switch (`electron/wmr.ts`).
+ */
+export const WMR_METHODS = [
+  'select_file', 'select_folder', 'begin_select_file', 'begin_select_folder',
+  'poll_dialog_result', 'clear_dialog_result',
+  'get_media_info', 'prepare_video_preview',
+  'open_video_preview_session', 'read_video_preview_frame', 'close_video_preview_session',
+  'load_annotations', 'save_annotations', 'delete_annotations',
+  'get_settings', 'save_settings', 'get_device_info',
+  'process_video', 'stop_processing', 'open_output_dir',
+  'get_model_download_status', 'start_model_download', 'cancel_model_download',
+  'get_upscale_model_download_status', 'start_upscale_model_download', 'cancel_upscale_model_download',
+  'get_upscale_capabilities', 'start_upscale', 'get_upscale_task_status', 'cancel_upscale_task',
+] as const;
+
+export type WmrMethod = (typeof WMR_METHODS)[number];
+
+/** Everything the preload script puts on `window.eraser`. */export interface WmrBridge {
+  [method: string]: (payload?: unknown) => Promise<unknown>;
+}
+
+export interface EraserBridge {
   capabilities(): Promise<Capabilities>;
   pickVideo(): Promise<PickResult>;
   pickOutputDir(): Promise<PickResult>;
@@ -150,6 +176,7 @@ export const IPC = {
   reveal: 'shell:reveal',
   openExternal: 'shell:open-external',
   defaultOutputDir: 'app:default-output-dir',
+  wmrCall: 'wmr:call',
   progress: 'task:progress',
   engineState: 'engine:state',
   engineLog: 'engine:log',

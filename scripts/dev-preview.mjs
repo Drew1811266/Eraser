@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 /**
- * Interactive preview of the real UI, without Electron.
+ * Browser preview of the ported reference UI, driven by the real engine.
  *
- * Electron cannot start a renderer in this environment (see docs/08 §4), so this
- * serves the *built* renderer and wires `window.eraser` to a real engine over
- * its real JSON-RPC. Everything the user clicks is the shipped code path except
- * the two native dialogs, which become prompts, and the `eraser-media:` scheme,
- * which is served over HTTP.
+ * Electron cannot start a renderer in this environment (docs/08 §4), so this
+ * serves the built bundle and provides `window.wmr` through the same
+ * `electron/wmrCore.ts` the packaged app uses. Everything below the UI is real:
+ * the engine, the protocol, the preview sessions, the annotation sidecar, the
+ * pipeline and the upscale. Only the three native bits are substituted:
+ *
+ *   - the file dialog becomes a prompt
+ *   - settings live in memory instead of userData
+ *   - "reveal in folder" does nothing
  *
  *   node scripts/dev-preview.mjs [--port 5299]
- *
- * Then open http://127.0.0.1:5299/ in a browser.
  */
 
 import { createServer } from 'node:http';
-import { createReadStream, existsSync, statSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -34,89 +36,89 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
-  '.mp4': 'video/mp4',
-  '.mov': 'video/quicktime',
-  '.mkv': 'video/x-matroska',
 };
 
 const BRIDGE = String.raw`
 (() => {
-  const listeners = { 'task:progress': new Set(), 'engine:state': new Set(), 'engine:log': new Set() };
+  const METHODS = ${JSON.stringify([
+    'select_file', 'select_folder', 'begin_select_file', 'begin_select_folder',
+    'poll_dialog_result', 'clear_dialog_result',
+    'get_media_info', 'prepare_video_preview',
+    'open_video_preview_session', 'read_video_preview_frame', 'close_video_preview_session',
+    'load_annotations', 'save_annotations', 'delete_annotations',
+    'get_settings', 'save_settings', 'get_device_info',
+    'process_video', 'stop_processing', 'open_output_dir',
+    'get_model_download_status', 'start_model_download', 'cancel_model_download',
+    'get_upscale_model_download_status', 'start_upscale_model_download', 'cancel_upscale_model_download',
+    'get_upscale_capabilities', 'start_upscale', 'get_upscale_task_status', 'cancel_upscale_task',
+  ])};
+
+  const call = async (method, payload) => {
+    const response = await fetch('/wmr', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ method, payload: payload ?? {} }),
+    });
+    return response.json();
+  };
+
+  window.wmr = {};
+  for (const method of METHODS) {
+    window.wmr[method] = (payload) => call(method, payload);
+  }
+
+  // Native dialogs are the one thing a browser cannot provide: a prompt that
+  // starts pre-filled keeps the rest of the flow identical.
+  const ask = (label, fallback) => {
+    const picked = window.prompt(label, fallback);
+    return picked === null || picked === '' ? null : picked;
+  };
+  window.wmr.select_file = async () => {
+    const picked = ask('视频文件路径', window.__DEFAULT_VIDEO__);
+    return picked ? { path: picked } : null;
+  };
+  const pending = {};
+  window.wmr.begin_select_file = async () => {
+    const picked = ask('视频文件路径', window.__DEFAULT_VIDEO__);
+    pending.native = { path: picked ?? undefined, cancelled: !picked };
+    return { success: true, request_id: 'native' };
+  };
+  window.wmr.select_folder = async () => {
+    const picked = ask('输出目录', window.__OUT_DIR__);
+    return picked ? { path: picked } : null;
+  };
+  window.wmr.begin_select_folder = async () => {
+    const picked = ask('输出目录', window.__OUT_DIR__);
+    pending.folder = { path: picked ?? undefined, cancelled: !picked };
+    return { success: true, request_id: 'folder' };
+  };
+  window.wmr.poll_dialog_result = async (payload) => {
+    const stored = pending[payload?.request_id];
+    if (!stored) return { done: true, success: false, error: '对话框已关闭' };
+    return { done: true, success: true, cancelled: stored.cancelled, path: stored.path };
+  };
+  window.wmr.clear_dialog_result = async (payload) => {
+    delete pending[payload?.request_id];
+    return { success: true };
+  };
+
+  // Progress: the harness relays engine notifications as SSE; the UI listens on
+  // window with addEventListener, exactly as it does in Electron.
   const source = new EventSource('/events');
   source.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
-      const bucket = listeners[message.channel];
-      if (bucket) for (const fn of bucket) fn(message.payload);
+      if (message.channel === 'wmr-progress') {
+        window.dispatchEvent(new CustomEvent('wmr-progress', { detail: message.payload }));
+      }
     } catch (error) { console.error('bridge', error); }
   };
 
-  const call = async (method, params) => {
-    const response = await fetch('/rpc', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ method, params: params ?? {} }),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || ('rpc failed: ' + method));
-    return payload.result;
-  };
-
-  const subscribe = (channel, fn) => {
-    listeners[channel].add(fn);
-    return () => listeners[channel].delete(fn);
-  };
-
-  window.eraser = {
-    capabilities: () => call('system.capabilities'),
-    // The native dialogs are the only thing a browser cannot provide; a prompt
-    // with the demo path pre-filled keeps the flow identical.
-    pickVideo: async () => {
-      const picked = window.prompt('视频文件路径', window.__DEFAULT_VIDEO__);
-      if (!picked) return { canceled: true };
-      return { canceled: false, path: picked };
-    },
-    pickOutputDir: async () => {
-      const picked = window.prompt('输出目录', window.__OUT_DIR__);
-      if (!picked) return { canceled: true };
-      return { canceled: false, path: picked };
-    },
-    probe: (p) => call('media.probe', { path: p }),
-    start: (request) => call('process.start', request),
-    upscale: (request) => call('upscale.start', request),
-    cancel: (taskId) => call('process.cancel', { task_id: taskId }),
-    status: (taskId) => call('process.status', { task_id: taskId }),
-    reveal: async () => undefined,
-    openExternal: async () => undefined,
-    defaultOutputDir: async () => window.__OUT_DIR__,
-    onProgress: (fn) => subscribe('task:progress', fn),
-    onEngineState: (fn) => subscribe('engine:state', fn),
-    onEngineLog: (fn) => subscribe('engine:log', fn),
-  };
-
-  // The app addresses previews with the custom scheme the Electron main process
-  // registers; here the same bytes come from /media/.
-  const PREFIX = 'eraser-media://local/';
-  const fix = (element) => {
-    const src = element.getAttribute('src') || '';
-    if (src.startsWith(PREFIX)) {
-      element.setAttribute('src', '/media/' + src.slice(PREFIX.length));
-    }
-  };
-  const observer = new MutationObserver((records) => {
-    for (const record of records) {
-      if (record.type === 'attributes' && record.target.tagName === 'VIDEO') fix(record.target);
-      for (const node of record.addedNodes || []) {
-        if (node.nodeType === 1) {
-          if (node.tagName === 'VIDEO') fix(node);
-          node.querySelectorAll?.('video').forEach(fix);
-        }
-      }
-    }
-  });
-  observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] });
+  window.__previewReady = true;
 })();
 `;
 
@@ -126,52 +128,18 @@ function serveStatic(file, response) {
   response.end(readFileSync(file));
 }
 
-function serveMedia(file, request, response) {
-  let stat;
-  try {
-    stat = statSync(file);
-  } catch {
-    response.writeHead(404).end('not found');
-    return;
-  }
-
-  const type = MIME[path.extname(file).toLowerCase()] ?? 'video/mp4';
-  const range = request.headers.range;
-  if (!range) {
-    response.writeHead(200, { 'content-type': type, 'content-length': stat.size, 'accept-ranges': 'bytes' });
-    createReadStream(file).pipe(response);
-    return;
-  }
-
-  // Seeking needs byte ranges; a video element asks for them immediately.
-  const match = /bytes=(\d*)-(\d*)/.exec(range);
-  const start = match && match[1] ? Number(match[1]) : 0;
-  const end = match && match[2] ? Number(match[2]) : stat.size - 1;
-  if (start >= stat.size || end < start) {
-    response.writeHead(416, { 'content-range': `bytes */${stat.size}` }).end();
-    return;
-  }
-  response.writeHead(206, {
-    'content-type': type,
-    'content-range': `bytes ${start}-${end}/${stat.size}`,
-    'content-length': end - start + 1,
-    'accept-ranges': 'bytes',
-  });
-  createReadStream(file, { start, end }).pipe(response);
-}
-
 async function main() {
   if (!existsSync(path.join(RENDERER, 'index.html'))) {
     throw new Error('renderer bundle missing: npm --prefix desktop run build');
-  }
-  if (!existsSync(OUT_DIR)) {
-    const { mkdirSync } = await import('node:fs');
-    mkdirSync(OUT_DIR, { recursive: true });
   }
 
   const { EngineClient } = await import(
     pathToFileURL(path.join(DESKTOP, 'electron', 'services', 'engineClient.ts')).href
   );
+  const { wmrEngineCall } = await import(
+    pathToFileURL(path.join(DESKTOP, 'electron', 'wmrCore.ts')).href
+  );
+
   const client = new EngineClient({
     command: PYTHON,
     args: ['-u', '-m', 'engine.main'],
@@ -180,13 +148,44 @@ async function main() {
   });
 
   const sinks = new Set();
-  client.on('notification', (notification) => {
-    const frame = `data: ${JSON.stringify({ channel: 'task:progress', payload: notification.params })}\n\n`;
+  const send = (channel, payload) => {
+    const frame = `data: ${JSON.stringify({ channel, payload })}\n\n`;
     for (const sink of sinks) sink.write(frame);
-  });
+  };
 
   const capabilities = await client.start();
   console.log(`engine ${capabilities.engine_version} · ${capabilities.platform} · cuda=${capabilities.runtime?.cuda_usable}`);
+
+  let settings = {
+    language: 'zh',
+    theme: 'dark',
+    output: { path: OUT_DIR, model_id: 'lama_roi' },
+  };
+  let activeTask = null;
+
+  const deps = {
+    request: (method, params) => client.request(method, params),
+    readSettings: () => settings,
+    writeSettings: (patch) => {
+      settings = {
+        language: patch.language ?? settings.language,
+        theme: patch.theme ?? settings.theme,
+        output: {
+          path: patch.output?.path ?? settings.output.path,
+          model_id: patch.output?.model_id ?? settings.output.model_id,
+        },
+      };
+    },
+    defaultOutputDir: () => OUT_DIR,
+    openPath: async () => undefined,
+    pushProgress: (payload) => send('wmr-progress', payload),
+    activeTask: {
+      get: () => activeTask,
+      set: (taskId) => {
+        activeTask = taskId;
+      },
+    },
+  };
 
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
@@ -200,36 +199,54 @@ async function main() {
     }
 
     if (url.pathname === '/__bridge.js') {
-      response.writeHead(200, { 'content-type': MIME['.js'] });
+      // Rebuilt on every edit; never let the browser serve a stale bridge.
+      response.writeHead(200, { 'content-type': MIME['.js'], 'cache-control': 'no-store' });
       response.end(BRIDGE);
       return;
     }
 
     if (url.pathname === '/__vars.js') {
-      response.writeHead(200, { 'content-type': MIME['.js'] });
-      response.end(
-        `window.__DEFAULT_VIDEO__=${JSON.stringify(FIXTURE)};window.__OUT_DIR__=${JSON.stringify(OUT_DIR)};`,
-      );
+      response.writeHead(200, { 'content-type': MIME['.js'], 'cache-control': 'no-store' });
+      response.end(`window.__DEFAULT_VIDEO__=${JSON.stringify(FIXTURE)};window.__OUT_DIR__=${JSON.stringify(OUT_DIR)};`);
       return;
     }
 
     if (url.pathname.startsWith('/media/')) {
-      const file = path.resolve(decodeURIComponent(url.pathname.slice('/media/'.length)));
-      serveMedia(file, request, response);
+      const target = decodeURIComponent(url.pathname.slice('/media/'.length));
+      if (!existsSync(target)) { response.writeHead(404).end('not found'); return; }
+      const { statSync: stat, createReadStream } = await import('node:fs');
+      const info = stat(target);
+      const range = request.headers.range;
+      const type = target.endsWith('.mp4') ? 'video/mp4' : 'application/octet-stream';
+      if (!range) {
+        response.writeHead(200, { 'content-type': type, 'content-length': info.size, 'accept-ranges': 'bytes' });
+        createReadStream(target).pipe(response);
+        return;
+      }
+      const match = /bytes=(\d*)-(\d*)/.exec(range);
+      const start = match && match[1] ? Number(match[1]) : 0;
+      const end = match && match[2] ? Number(match[2]) : info.size - 1;
+      response.writeHead(206, {
+        'content-type': type,
+        'content-range': `bytes ${start}-${end}/${info.size}`,
+        'content-length': end - start + 1,
+        'accept-ranges': 'bytes',
+      });
+      createReadStream(target, { start, end }).pipe(response);
       return;
     }
 
-    if (url.pathname === '/rpc' && request.method === 'POST') {
+    if (url.pathname === '/wmr' && request.method === 'POST') {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
       try {
-        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
-        const result = await client.request(body.method, body.params ?? {});
+        const result = await wmrEngineCall(deps, body.method, body.payload ?? {});
         response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ result }));
+        response.end(JSON.stringify(result));
       } catch (error) {
-        response.writeHead(400, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ error: error?.message ?? String(error) }));
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ success: false, error: error?.message ?? String(error) }));
       }
       return;
     }
@@ -253,7 +270,7 @@ async function main() {
   });
 
   server.listen(PORT, '127.0.0.1', () => {
-    console.log(`preview ${'http://127.0.0.1:' + PORT + '/'}`);
+    console.log(`preview http://127.0.0.1:${PORT}/`);
     console.log(`output  ${OUT_DIR}`);
   });
 

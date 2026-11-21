@@ -10,6 +10,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
   IPC,
+  WMR_METHODS,
   type Capabilities,
   type EngineState,
   type EraserBridge,
@@ -47,3 +48,11 @@ const bridge: EraserBridge = {
 };
 
 contextBridge.exposeInMainWorld('eraser', bridge);
+
+// The ported reference UI talks to `window.wmr.<method>(payload)`; every name
+// tunnels to the same main-process router.
+const wmr: Record<string, (payload?: unknown) => Promise<unknown>> = {};
+for (const method of WMR_METHODS) {
+  wmr[method] = (payload?: unknown) => ipcRenderer.invoke(IPC.wmrCall, { method, payload });
+}
+contextBridge.exposeInMainWorld('wmr', wmr);

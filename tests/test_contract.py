@@ -68,7 +68,18 @@ class ContractShapeTests(unittest.TestCase):
                 "system.capabilities",
                 "system.shutdown",
                 "media.probe",
+                # The ported reference UI needs frames for its canvas, a home
+                # for its annotations, and the ability to repair a missing model.
+                "preview.open",
+                "preview.frame",
+                "preview.close",
                 "annotation.normalize",
+                "annotation.load",
+                "annotation.save",
+                "annotation.delete",
+                "model.download.start",
+                "model.download.status",
+                "model.download.cancel",
                 "process.start",
                 "process.cancel",
                 "process.status",

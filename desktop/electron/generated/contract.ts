@@ -114,6 +114,45 @@ export interface MediaProbeParams {
 
 export type MediaProbeResult = MediaInfo;
 
+/** Open a preview session for a video so frames can be read one at a time. */
+export interface PreviewOpenParams {
+  path: string;
+  max_width?: number;
+}
+
+export interface PreviewOpenResult {
+  session_id: string;
+  width: number;
+  height: number;
+  fps: number;
+  frame_count: number;
+  preview_width?: number;
+  preview_height?: number;
+}
+
+/** Return one preview frame as a JPEG data URL, scaled for the canvas. */
+export interface PreviewFrameParams {
+  session_id: string;
+  frame_index: number;
+}
+
+export interface PreviewFrameResult {
+  session_id: string;
+  frame_index: number;
+  data_url: string;
+  width?: number;
+  height?: number;
+}
+
+/** Close a preview session and drop its temporary files. */
+export interface PreviewCloseParams {
+  session_id: string;
+}
+
+export interface PreviewCloseResult {
+  ok: boolean;
+}
+
 /** Clamp, order and default-fill annotation segments against video geometry. */
 export interface AnnotationNormalizeParams {
   segments: Segment[];
@@ -121,6 +160,38 @@ export interface AnnotationNormalizeParams {
 }
 
 export interface AnnotationNormalizeResult {
+  segments: Segment[];
+}
+
+/** Remove the annotation sidecar for a video. */
+export interface AnnotationDeleteParams {
+  video_path: string;
+}
+
+export interface AnnotationDeleteResult {
+  ok: boolean;
+  deleted?: boolean;
+}
+
+/** Persist annotations for a video, returning the sidecar path. */
+export interface AnnotationSaveParams {
+  video_path: string;
+  segments: Segment[];
+}
+
+export interface AnnotationSaveResult {
+  sidecar_path: string;
+  segments?: Segment[];
+}
+
+/** Load the annotation sidecar stored next to a video. */
+export interface AnnotationLoadParams {
+  video_path: string;
+}
+
+export interface AnnotationLoadResult {
+  exists: boolean;
+  sidecar_path?: string;
   segments: Segment[];
 }
 
@@ -181,6 +252,35 @@ export interface ModelInstallResult {
   task_id: string;
 }
 
+/** Cancel an in-flight model download. */
+export type ModelDownloadCancelParams = Record<string, never>;
+
+export interface ModelDownloadCancelResult {
+  ok: boolean;
+}
+
+/** Download the weights for a model that is not installed. */
+export interface ModelDownloadStartParams {
+  model_id: string;
+}
+
+export interface ModelDownloadStartResult {
+  ok: boolean;
+}
+
+/** Report the state of the model downloader. */
+export type ModelDownloadStatusParams = Record<string, never>;
+
+export interface ModelDownloadStatusResult {
+  state: string;
+  model_id?: string;
+  progress: number;
+  received_bytes?: number;
+  total_bytes?: number;
+  error?: string;
+  installed: boolean;
+}
+
 /** Snapshot a model-install task. */
 export interface ModelInstallStatusParams {
   task_id: string;
@@ -202,13 +302,22 @@ export type MethodName =
   | "system.capabilities"
   | "system.shutdown"
   | "media.probe"
+  | "preview.open"
+  | "preview.frame"
+  | "preview.close"
   | "annotation.normalize"
+  | "annotation.delete"
+  | "annotation.save"
+  | "annotation.load"
   | "process.start"
   | "process.cancel"
   | "process.status"
   | "upscale.start"
   | "model.list"
   | "model.install"
+  | "model.download.cancel"
+  | "model.download.start"
+  | "model.download.status"
   | "model.installStatus"
   | "assets.verify";
 
@@ -217,13 +326,22 @@ export interface MethodParams {
   "system.capabilities": SystemCapabilitiesParams;
   "system.shutdown": SystemShutdownParams;
   "media.probe": MediaProbeParams;
+  "preview.open": PreviewOpenParams;
+  "preview.frame": PreviewFrameParams;
+  "preview.close": PreviewCloseParams;
   "annotation.normalize": AnnotationNormalizeParams;
+  "annotation.delete": AnnotationDeleteParams;
+  "annotation.save": AnnotationSaveParams;
+  "annotation.load": AnnotationLoadParams;
   "process.start": ProcessStartParams;
   "process.cancel": ProcessCancelParams;
   "process.status": ProcessStatusParams;
   "upscale.start": UpscaleStartParams;
   "model.list": ModelListParams;
   "model.install": ModelInstallParams;
+  "model.download.cancel": ModelDownloadCancelParams;
+  "model.download.start": ModelDownloadStartParams;
+  "model.download.status": ModelDownloadStatusParams;
   "model.installStatus": ModelInstallStatusParams;
   "assets.verify": AssetsVerifyParams;
 }
@@ -233,13 +351,22 @@ export interface MethodResults {
   "system.capabilities": SystemCapabilitiesResult;
   "system.shutdown": SystemShutdownResult;
   "media.probe": MediaProbeResult;
+  "preview.open": PreviewOpenResult;
+  "preview.frame": PreviewFrameResult;
+  "preview.close": PreviewCloseResult;
   "annotation.normalize": AnnotationNormalizeResult;
+  "annotation.delete": AnnotationDeleteResult;
+  "annotation.save": AnnotationSaveResult;
+  "annotation.load": AnnotationLoadResult;
   "process.start": ProcessStartResult;
   "process.cancel": ProcessCancelResult;
   "process.status": ProcessStatusResult;
   "upscale.start": UpscaleStartResult;
   "model.list": ModelListResult;
   "model.install": ModelInstallResult;
+  "model.download.cancel": ModelDownloadCancelResult;
+  "model.download.start": ModelDownloadStartResult;
+  "model.download.status": ModelDownloadStatusResult;
   "model.installStatus": ModelInstallStatusResult;
   "assets.verify": AssetsVerifyResult;
 }
@@ -249,12 +376,21 @@ export const IMPLEMENTED_METHODS = [
   "system.capabilities",
   "system.shutdown",
   "media.probe",
+  "preview.open",
+  "preview.frame",
+  "preview.close",
   "annotation.normalize",
+  "annotation.delete",
+  "annotation.save",
+  "annotation.load",
   "process.start",
   "process.cancel",
   "process.status",
   "upscale.start",
   "model.list",
+  "model.download.cancel",
+  "model.download.start",
+  "model.download.status",
   "assets.verify",
 ] as const;
 

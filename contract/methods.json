@@ -380,6 +380,136 @@
       }
     },
     {
+      "name": "preview.open",
+      "summary": "Open a preview session for a video so frames can be read one at a time.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "max_width": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "result": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "fps": {
+            "type": "number"
+          },
+          "frame_count": {
+            "type": "integer"
+          },
+          "preview_width": {
+            "type": "integer"
+          },
+          "preview_height": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "width",
+          "height",
+          "fps",
+          "frame_count"
+        ]
+      }
+    },
+    {
+      "name": "preview.frame",
+      "summary": "Return one preview frame as a JPEG data URL, scaled for the canvas.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "frame_index": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "frame_index"
+        ]
+      },
+      "result": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "frame_index": {
+            "type": "integer"
+          },
+          "data_url": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "frame_index",
+          "data_url"
+        ]
+      }
+    },
+    {
+      "name": "preview.close",
+      "summary": "Close a preview session and drop its temporary files.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      },
+      "result": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
       "name": "annotation.normalize",
       "summary": "Clamp, order and default-fill annotation segments against video geometry.",
       "implemented": true,
@@ -413,6 +543,119 @@
           }
         },
         "required": [
+          "segments"
+        ]
+      }
+    },
+    {
+      "name": "annotation.delete",
+      "summary": "Remove the annotation sidecar for a video.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "video_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_path"
+        ]
+      },
+      "result": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "annotation.save",
+      "summary": "Persist annotations for a video, returning the sidecar path.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "video_path": {
+            "type": "string"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/types/Segment"
+            }
+          }
+        },
+        "required": [
+          "video_path",
+          "segments"
+        ]
+      },
+      "result": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sidecar_path": {
+            "type": "string"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/types/Segment"
+            }
+          }
+        },
+        "required": [
+          "sidecar_path"
+        ]
+      }
+    },
+    {
+      "name": "annotation.load",
+      "summary": "Load the annotation sidecar stored next to a video.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "video_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_path"
+        ]
+      },
+      "result": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "exists": {
+            "type": "boolean"
+          },
+          "sidecar_path": {
+            "type": "string"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/types/Segment"
+            }
+          }
+        },
+        "required": [
+          "exists",
           "segments"
         ]
       }
@@ -595,6 +838,101 @@
         },
         "required": [
           "task_id"
+        ]
+      }
+    },
+    {
+      "name": "model.download.cancel",
+      "summary": "Cancel an in-flight model download.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "result": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "model.download.start",
+      "summary": "Download the weights for a model that is not installed.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "model_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id"
+        ]
+      },
+      "result": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "model.download.status",
+      "summary": "Report the state of the model downloader.",
+      "implemented": true,
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "result": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "number"
+          },
+          "received_bytes": {
+            "type": "integer"
+          },
+          "total_bytes": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "state",
+          "progress",
+          "installed"
         ]
       }
     },

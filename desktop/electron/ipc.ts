@@ -3,6 +3,7 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { EngineError } from './services/engineClient';
 import { EngineHost } from './services/engineHost';
+import { wmrCall } from './wmr';
 import { IPC, type PickResult, type StartRequest, type UpscaleRequest } from '../shared/ipc';
 
 const VIDEO_FILTERS = [
@@ -99,6 +100,19 @@ export function registerIpc(host: EngineHost): void {
       rethrow(error);
     }
   });
+
+  ipcMain.handle(
+    IPC.wmrCall,
+    async (event, request: { method: string; payload?: Record<string, unknown> }) => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      try {
+        return await wmrCall(host, request.method, request.payload ?? {}, window);
+      } catch (error) {
+        // The reference UI renders `error` strings, so a failure is a value.
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  );
 
   ipcMain.handle(IPC.reveal, async (_event, target: string) => {
     shell.showItemInFolder(target);
