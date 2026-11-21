@@ -37,6 +37,7 @@ from typing import Any, Callable
 from engine.pipeline.logging import logger
 from engine.pipeline.seedvr import manifest
 from engine.pipeline.seedvr.capability import RuntimeState, find_python, read_state, write_state
+from engine.pipeline.seedvr.progress import ProgressReader
 
 ProgressCallback = Callable[[dict[str, Any]], None]
 CancelEvent = Any
@@ -60,6 +61,97 @@ class SeedVRError(RuntimeError):
 
 class _Cancelled(RuntimeError):
     """Raised inside the worker when the task is cancelled."""
+
+
+def _cuda_available() -> bool:
+    """Whether this machine has an NVIDIA GPU the runtime could use."""
+    try:
+        from engine.platform import ort_runtime
+
+        # The same answer the ONNX engine uses: asking onnxruntime is one thing,
+        # but whether CUDA actually loads next to these DLLs is another.
+        return bool(ort_runtime.cuda_usable())
+    except Exception:  # noqa: BLE001 - "cannot tell" means "do not try"
+        logger.warning("cannot detect CUDA; installing the CPU build of torch")
+        return False
+
+
+def _torch_index() -> str:
+    """Which PyTorch wheel index to install from.
+
+    cu128 rather than cu126 on purpose: cu126 has no kernels for sm_120, so on a
+    Blackwell card (RTX 50xx) it installs cleanly and then fails at the first
+    tile with "no kernel image is available for execution on the device". That
+    is a confusing failure to debug from a UI, so the default is the index that
+    works on both old and new cards. Override with ERASER_TORCH_INDEX when the
+    driver needs something else.
+    """
+    return os.environ.get("ERASER_TORCH_INDEX") or "https://download.pytorch.org/whl/cu128"
+
+
+def _install_cuda_torch(cancel: CancelEvent) -> None:
+    """Replace torch/torchvision with CUDA builds. Best effort by design."""
+    index = _torch_index()
+    uv = _uv_executable()
+    if uv:
+        command = [uv, "pip", "install", "--python", str(manifest.venv_python()),
+                   "--reinstall-package", "torch", "--reinstall-package", "torchvision",
+                   "torch", "torchvision", "--index-url", index]
+    else:
+        command = [str(manifest.venv_python()), "-m", "pip", "install",
+                   "--force-reinstall",
+                   "torch", "torchvision", "--index-url", index]
+    try:
+        result = _run(command, stall_timeout=1800.0, cancel=cancel)
+    except SeedVRError as exc:
+        logger.warning("CUDA torch install failed, keeping the CPU build: %s", exc)
+        return
+    if result.returncode != 0:
+        logger.warning("CUDA torch install failed, keeping the CPU build: %s",
+                       result.stdout[-300:])
+
+
+def _uv_executable() -> str:
+    """`uv` if the machine has it, otherwise empty.
+
+    Deliberately optional: it is a speed and reliability improvement, not a
+    dependency. A machine with only Python still installs, just slower.
+    """
+    if os.environ.get("ERASER_NO_UV") == "1":
+        return ""
+    found = shutil.which("uv")
+    return found or ""
+
+
+def _child_env() -> dict[str, str]:
+    """Environment for every child process in the runtime.
+
+    Upstream prints emoji and box drawing; on a Chinese-locale Windows the console
+    code page is GBK, and the first `⚠️` kills the process with
+    `UnicodeEncodeError: 'gbk' codec can't encode character`. Forcing UTF-8 on
+    the child is the fix, and it has to be on the environment rather than the
+    command because the crash happens during import, before any argument is read.
+    """
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+
+    # The CLI shells out to ffmpeg and insists on finding it on PATH. The engine
+    # ships its own copy, so point the child at it rather than asking the user to
+    # install ffmpeg separately.
+    try:
+        from engine.platform.ffmpeg import resolve
+
+        found = resolve("ffmpeg")
+        if found.path:
+            directory = str(Path(found.path).parent)
+            existing = env.get("PATH", "")
+            if directory not in existing.split(os.pathsep):
+                env["PATH"] = directory + (os.pathsep + existing if existing else "")
+    except Exception:  # noqa: BLE001 - a missing ffmpeg surfaces later, clearly
+        logger.warning("could not add the bundled ffmpeg to PATH")
+
+    return env
 
 
 def _no_window() -> int:
@@ -341,11 +433,22 @@ class SeedVRRuntime:
                     # pip's own words are the only honest progress there is.
                     stage("requirements", 0.5, text[:120])
 
+                # Prefer `uv` when it exists: the same install takes minutes
+                # instead of tens of minutes, and its resolver does not stall on
+                # a slow index the way pip's does. Falling back keeps this
+                # working on a machine that has only Python.
+                installer = _uv_executable()
+                if installer:
+                    command = [installer, "pip", "install", "--python",
+                               str(manifest.venv_python()), "-r", str(manifest.requirements_file())]
+                else:
+                    command = [str(manifest.venv_python()), "-m", "pip", "install", "-r",
+                               str(manifest.requirements_file())]
+
                 result = _run(
-                    [str(manifest.venv_python()), "-m", "pip", "install", "-r",
-                     str(manifest.requirements_file())],
-                    # pip prints nothing while it downloads a 2.5GB wheel, so
-                    # the leash has to be long enough to tell "slow" from "dead".
+                    command,
+                    # Either installer prints nothing while it downloads a 2.5GB
+                    # wheel, so the leash has to tell "slow" from "dead".
                     stall_timeout=1200.0,
                     on_line=pip_line,
                     cancel=cancel,
@@ -353,21 +456,36 @@ class SeedVRRuntime:
                 if result.returncode != 0:
                     raise SeedVRError(f"dependency install failed: {result.stdout[-600:]}")
                 (manifest.runtime_root() / ".deps_ready").write_text("ok", encoding="utf-8")
+            # The wheels on PyPI are the CPU build. On a machine with an NVIDIA
+            # GPU that would silently run 30x slower, so the CUDA build is
+            # installed over it — and a failure here is a warning, not a stop:
+            # CPU inference is slow, not broken.
+            if _cuda_available():
+                stage("requirements", 0.9, "安装 CUDA 版 PyTorch")
+                _install_cuda_torch(cancel)
+
             stage("requirements", 1.0, "依赖安装完成")
 
-            stage("model", 0.0, f"下载模型 {spec.display_name}")
-            target = manifest.model_path(model_id)
-            if not manifest.model_installed(model_id):
+            files = manifest.required_files(model_id)
+            total_weight = sum(entry.size_bytes for entry in files) or 1
+            completed_bytes = 0
+            for entry in files:
+                target = manifest.models_dir() / entry.filename
+                if target.is_file() and target.stat().st_size > 0:
+                    completed_bytes += entry.size_bytes
+                    continue
+                stage("model", completed_bytes / total_weight, f"下载模型 {entry.display_name}")
                 _download(
-                    spec.url, target,
-                    expected_sha256=spec.sha256,
-                    on_progress=lambda received, total: stage(
+                    entry.url, target,
+                    expected_sha256=entry.sha256,
+                    on_progress=lambda received, total, base=completed_bytes: stage(
                         "model",
-                        (received / total) if total else 0.0,
-                        f"下载模型 {received / 1e9:.1f}GB" + (f" / {total / 1e9:.1f}GB" if total else ""),
+                        (base + received) / total_weight,
+                        f"下载模型 {(base + received) / 1e9:.1f}GB / {total_weight / 1e9:.1f}GB",
                     ),
                     cancel=cancel,
                 )
+                completed_bytes += entry.size_bytes
             stage("model", 1.0, "模型下载完成")
 
             installed = list(dict.fromkeys(read_state().installed_models + [model_id]))
@@ -433,25 +551,26 @@ class SeedVRRuntime:
             text=True,
             encoding="utf-8",
             errors="replace",
+            env=_child_env(),
             creationflags=_no_window(),
         )
+
+        progress_reader = ProgressReader()
 
         def pump() -> None:
             assert process.stdout is not None
             tail: list[str] = []
-            for line in process.stdout:
-                tail.append(line.rstrip())
-                if len(tail) > 40:
-                    tail.pop(0)
-                match = PROGRESS_LINE.match(line.strip())
-                if match:
-                    done, total = int(match.group(1)), max(1, int(match.group(2)))
-                    _emit(progress, phase="upscale", progress=done / total,
-                          message=f"SeedVR2 {done}/{total}", processed=done, total=total)
-                    continue
-                stage = STAGE_LINE.search(line)
-                if stage:
-                    _emit(progress, phase="prepare", message=f"准备：{stage.group(1)}")
+            for chunk in process.stdout:
+                # The CLI writes tqdm bars with carriage returns, so one "line"
+                # can contain several updates.
+                for line in chunk.replace("\r", "\n").splitlines():
+                    tail.append(line.rstrip())
+                    if len(tail) > 40:
+                        tail.pop(0)
+                    update = progress_reader.feed(line)
+                    if update is not None:
+                        _emit(progress, phase="upscale", progress=update.progress,
+                              message=update.message, stage=update.phase)
             self._last_output = tail
 
         reader = threading.Thread(target=pump, name="seedvr-progress", daemon=True)

@@ -129,7 +129,10 @@ node scripts/e2e-desktop.mjs
 | 能力探测与原因 | 已验证 | 14 个单测；`upscale.capabilities` 6 项协议检查 |
 | 安装器（venv / 固定 commit / 校验下载 / 取消 / 互斥锁） | 已验证 | 13 个单测（含 sha256 不符、取消、锁） |
 | 驱动（命令拼装 / 进度解析 / 取消 / 出片发现 / 任务接线） | 已验证 | `scripts/e2e-seedvr-driver.py` 13 项，对桩 CLI |
-| **模型本身出片质量** | **未验证** | 需要 torch + 3.6GB 权重；本环境 `pip install torch` 在解析阶段静默挂起 |
+| **模型本身出片** | **已验证（GPU）** | `scripts/e2e-seedvr-real.py` 11 项：真实权重出 1920×1080，帧数/音轨保留，进度来自 CLI 自身阶段 |
+
+实测数据（RTX 5090 D v2，Q4_K_M）：4 帧 320×180 → 1080p 用时 14s；单次 2 帧 256×144 用时 7–8s。
+
 
 安装器已实测到这里：Python 3.12 发现、venv 创建、固定 commit 拉取解包（20MB）都成功；
 卡在依赖安装（torch 约 2.5GB）。换一台能正常访问 PyPI 的机器执行即可继续：
@@ -138,4 +141,16 @@ node scripts/e2e-desktop.mjs
 python -c "from engine.pipeline.seedvr.runtime import install; install('seedvr2_3b_q4_k_m_gguf', progress=print)"
 ```
 
-**在它跑通之前，界面会如实显示"运行时未安装"，不会假装可用。**
+### 接进 Windows 时踩到的三个坑（都已修）
+
+1. **GBK 编码崩溃**：上游 CLI 打印 `⚠️` 等 emoji，中文 Windows 控制台是 GBK，
+   进程在 import 阶段就 `UnicodeEncodeError` 退出。修复：给子进程强制
+   `PYTHONIOENCODING=utf-8` + `PYTHONUTF8=1`。
+2. **找不到 ffmpeg**：CLI 要求 ffmpeg 在 PATH 上。修复：把引擎自带的 ffmpeg 目录
+   注入子进程 PATH，不要求用户另装。
+3. **cu126 没有 Blackwell 内核**：`torch 2.14.1+cu126` 在 5090（sm_120）上装得上、
+   一跑就报 `no kernel image is available`。修复：CUDA 轮子默认走 cu128，
+   并用 `--reinstall-package` 确保真的替换掉 CPU 轮子。
+
+还有一个货真价实的 bug：`reader` 变量名和后面线程的 `reader` 撞车，
+进度线程一启动就死，子进程写满管道后整次推理挂死——桩测试没覆盖到，真实模型一跑就现形。

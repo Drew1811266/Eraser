@@ -179,3 +179,42 @@ class ManifestPathTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProgressReaderTests(unittest.TestCase):
+    """The CLI narrates; the reader turns that into a bar that only grows."""
+
+    def setUp(self) -> None:
+        from engine.pipeline.seedvr.progress import ProgressReader
+
+        self.reader = ProgressReader()
+
+    def test_a_phase_moves_the_bar_to_its_start(self) -> None:
+        update = self.reader.feed("━━━━━━━━ Phase 2: DiT upscaling ━━━━━━━━")
+        self.assertIsNotNone(update)
+        self.assertAlmostEqual(update.progress, 0.10)
+
+    def test_batches_advance_within_a_phase(self) -> None:
+        self.reader.feed("━━━━━━━━ Phase 4: Post-processing ━━━━━━━━")
+        half = self.reader.feed("📹 Post-processing batch 1/2")
+        full = self.reader.feed("📹 Post-processing batch 2/2")
+        self.assertLess(half.progress, full.progress)
+        self.assertAlmostEqual(full.progress, 1.0, places=2)
+
+    def test_an_older_progress_never_wins(self) -> None:
+        self.reader.feed("━━━━━━━━ Phase 3: VAE decoding ━━━━━━━━")
+        self.assertIsNone(self.reader.feed("━━━━━━━━ Phase 1: VAE encoding ━━━━━━━━"))
+
+    def test_the_final_line_is_the_end(self) -> None:
+        update = self.reader.feed("✅ All upscaling processes completed successfully in 2.61s")
+        self.assertIsNotNone(update)
+        self.assertTrue(self.reader.finished)
+        self.assertEqual(update.progress, 1.0)
+
+    def test_a_documented_chunk_line_still_works(self) -> None:
+        update = self.reader.feed("PROGRESS chunk=3/4")
+        self.assertAlmostEqual(update.progress, 0.75 * 0.95)
+
+    def test_noise_produces_nothing(self) -> None:
+        for line in ("W1121 redirects are not supported", "UserWarning: deprecated", ""):
+            self.assertIsNone(self.reader.feed(line))

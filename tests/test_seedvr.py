@@ -50,8 +50,11 @@ class CapabilityTests(unittest.TestCase):
         manifest.inference_script().write_text("# cli", encoding="utf-8")
 
     def _fake_model(self) -> None:
+        # An installed model is the DiT *and* its shared VAE; only one of them is
+        # a model that cannot run.
         manifest.models_dir().mkdir(parents=True, exist_ok=True)
         manifest.model_path(self.model).write_bytes(b"weights")
+        manifest.vae_path().write_bytes(b"vae")
 
     def test_missing_python_is_named(self) -> None:
         with mock.patch.object(capability, "find_python", return_value=""):
@@ -79,6 +82,16 @@ class CapabilityTests(unittest.TestCase):
             result = capability.check(self.model)
         self.assertEqual(result.reason, "no_model")
         self.assertTrue(result.detail)
+
+    def test_a_missing_vae_counts_as_not_installed(self) -> None:
+        # The DiT alone cannot decode a frame; reporting it as installed would
+        # produce a runtime error on the first job.
+        self._fake_runtime()
+        manifest.models_dir().mkdir(parents=True, exist_ok=True)
+        manifest.model_path(self.model).write_bytes(b"weights")
+        with mock.patch.object(capability, "find_python", return_value="C:/python.exe"):
+            result = capability.check(self.model)
+        self.assertEqual(result.reason, "no_model")
 
     def test_a_small_gpu_is_a_refusal_with_a_number(self) -> None:
         self._fake_runtime()

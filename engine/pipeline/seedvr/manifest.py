@@ -67,6 +67,20 @@ MODEL_SPECS: dict[str, SeedVRModelSpec] = {
 
 UPSCALE_MODELS = tuple(MODEL_SPECS)
 
+#: The shared decoder every SeedVR2 variant needs. Upstream would download it on
+#: first inference; doing it here means a finished install works offline, and the
+#: UI can say "installed" and be telling the truth.
+VAE_SPEC = SeedVRModelSpec(
+    model_id="seedvr2_vae_fp16",
+    display_name="SeedVR2 VAE (fp16)",
+    filename="ema_vae_fp16.safetensors",
+    url="https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/ema_vae_fp16.safetensors",
+    sha256="20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1",
+    size_bytes=360_000_000,
+    min_memory_gb=0.0,
+    install_hint="与模型配套的解码器，安装时一并下载。",
+)
+
 #: Python the upstream CLI is written for. 3.13 tends to work as well, but the
 #: reference pins 3.12 and mixing versions across a 40-package install is how
 #: "it worked yesterday" happens.
@@ -117,6 +131,15 @@ def model_path(model_id: str) -> Path:
     return models_dir() / get_spec(model_id).filename
 
 
+def vae_path() -> Path:
+    return models_dir() / VAE_SPEC.filename
+
+
+def required_files(model_id: str) -> tuple[SeedVRModelSpec, ...]:
+    """Everything that has to be on disk before inference can start."""
+    return (get_spec(model_id), VAE_SPEC)
+
+
 def inference_script() -> Path:
     return repo_dir() / "inference_cli.py"
 
@@ -137,5 +160,8 @@ def get_spec(model_id: str) -> SeedVRModelSpec:
 
 
 def model_installed(model_id: str) -> bool:
-    path = model_path(model_id)
-    return path.is_file() and path.stat().st_size > 0
+    """A model is installed when it *and* its VAE are on disk."""
+    for path in (model_path(model_id), vae_path()):
+        if not path.is_file() or path.stat().st_size <= 0:
+            return False
+    return True
