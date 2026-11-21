@@ -50,10 +50,42 @@ def user_data_dir() -> Path:
 
 
 def temp_dir() -> Path:
+    """Scratch space for previews and temporary encodes.
+
+    Three candidates in order: the explicit override, the system temp, and the
+    application data directory. The last one exists because `tempfile.gettempdir()`
+    can answer with the *current working directory* when the system temp is not
+    writable — which is how a scratch folder ended up inside the user's project
+    instead of a temp directory. An application must never write scratch into
+    wherever it happened to be launched from.
+    """
     override = os.environ.get(ENV_TEMP, "").strip()
     if override:
         return Path(override).expanduser()
-    return Path(tempfile.gettempdir()) / APP_NAME.lower()
+
+    working = Path.cwd().resolve()
+    for root in (Path(tempfile.gettempdir()) / APP_NAME.lower(), user_data_dir() / "temp"):
+        try:
+            resolved = root.resolve()
+        except OSError:
+            continue
+        if resolved == working or working in resolved.parents:
+            # `gettempdir()` falls back to the working directory when the system
+            # temp is unusable; writing scratch beside the user's files is worse
+            # than failing to find a temp directory.
+            continue
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            probe = root / ".write-probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+            return root
+        except OSError:
+            continue
+
+    # Nothing is writable; the caller's mkdir will fail with a real error rather
+    # than silently scattering files through the working directory.
+    return user_data_dir() / "temp"
 
 
 def models_dir() -> Path:
