@@ -195,3 +195,32 @@ describe('clampIntervals', () => {
     expect(clamped.keyframes.map((item) => item.frame)).toEqual([5]);
   });
 });
+
+describe('keyframe invariants', () => {
+  it('gives both halves a keyframe after splitting past the only one', () => {
+    const split = splitTrack(track([[0, 20]], [18]), 0, 10);
+    const [left, right] = split.intervals;
+    for (const interval of [left!, right!]) {
+      expect(
+        split.keyframes.some(
+          (keyframe) =>
+            keyframe.frame >= interval.start_frame && keyframe.frame <= interval.end_frame,
+        ),
+        `interval ${interval.start_frame}-${interval.end_frame} has no keyframe`,
+      ).toBe(true);
+    }
+  });
+
+  it('keeps the synthesized keyframe inside the interval it covers', () => {
+    const split = splitTrack(track([[0, 20]], [18]), 0, 10);
+    const leftKeyframe = split.keyframes.find((item) => item.frame <= 9);
+    expect(leftKeyframe).toBeDefined();
+    expect(leftKeyframe!.frame).toBe(9);
+  });
+
+  it('still covers an interval whose keyframe was nudged out of it', () => {
+    const clamped = clampIntervals([track([[6, 10]], [5])], FRAMES)[0]!;
+    expect(clamped.keyframes).toHaveLength(1);
+    expect(clamped.keyframes[0]!.frame).toBe(6);
+  });
+});

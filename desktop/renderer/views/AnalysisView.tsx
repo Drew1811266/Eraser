@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useI18n } from '../i18n/useI18n';
 import { Timeline } from '../components/Timeline';
-import { AnalysisReport, type InstallState } from './AnalysisReport';
+import { AnalysisReport } from './AnalysisReport';
 import { useAnalysisStore } from '../store/analysis';
+import { useWorkspaceStore } from '../store/workspace';
 import { analysisError } from './analysisErrors';
 import type {
   Analysis,
@@ -16,7 +17,6 @@ import type {
 
 const POLL_MS = 250;
 const TERMINAL = new Set(['success', 'failed', 'cancelled']);
-const IDLE_INSTALL: InstallState = { phase: 'idle', progress: 0, message: '', error: '' };
 
 function desktop(): EraserBridge {
   const api = window.eraser;
@@ -26,13 +26,22 @@ function desktop(): EraserBridge {
   return api;
 }
 
-async function waitFor(taskId: string, onTick?: (status: TaskStatus) => void): Promise<TaskStatus> {
+async function waitFor(
+  taskId: string,
+  onTick?: (status: TaskStatus) => void,
+  timeoutMs = 15 * 60_000,
+): Promise<TaskStatus> {
   const api = desktop();
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
     const status = await api.status(taskId);
     onTick?.(status);
     if (TERMINAL.has(status.state)) {
       return status;
+    }
+    // 没有超时的轮询会让按钮永久禁用；一个卡住的任务必须变成一条错误。
+    if (Date.now() > deadline) {
+      throw new Error('任务超时，请重试');
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
@@ -49,8 +58,8 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
   const { t } = useI18n();
   const state = useAnalysisStore();
   const [detectors, setDetectors] = useState<DetectorEntry[]>([]);
-  const [install, setInstall] = useState<InstallState>(IDLE_INSTALL);
   const [compiling, setCompiling] = useState(false);
+  const install = state.install;
 
   const detector = useMemo(
     () => detectors.find((entry) => entry.available) ?? detectors[0] ?? null,
@@ -79,9 +88,14 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
   }, []);
 
   const startAnalysis = useCallback(async () => {
+    // 同步进入 running，堵住"点击到任务返回"之间重复点击起两个任务的空隙。
+    if (useAnalysisStore.getState().phase === 'running') {
+      return;
+    }
+    useAnalysisStore.getState().begin('pending');
     try {
       const { task_id } = await desktop().analyzeStart({ input_path: videoPath });
-      state.begin(task_id);
+      useAnalysisStore.getState().begin(task_id);
       const status = await waitFor(task_id, (tick) =>
         useAnalysisStore.getState().setProgress(tick.progress, tick.message),
       );
@@ -100,27 +114,42 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
   }, [videoPath, state]);
 
   const installDetector = useCallback(async (modelId: string) => {
-    setInstall({ phase: 'running', progress: 0, message: '', error: '' });
+    useAnalysisStore.getState().setInstall({ phase: 'running', progress: 0, message: '', error: '' });
     try {
       const { task_id } = await desktop().installDetector({ model_id: modelId });
       const status = await waitFor(task_id, (tick) =>
-        setInstall({ phase: 'running', progress: tick.progress, message: tick.message, error: '' }),
+        useAnalysisStore.getState().setInstall({
+          phase: 'running',
+          progress: tick.progress,
+          message: tick.message,
+          error: '',
+        }),
       );
       if (status.state !== 'success') {
-        setInstall({ phase: 'failed', progress: 0, message: '', error: status.error || status.state });
+        useAnalysisStore.getState().setInstall({
+          phase: 'failed',
+          progress: 0,
+          message: '',
+          error: analysisError(status.error || status.state, t),
+        });
         return;
       }
-      setInstall({ phase: 'success', progress: 1, message: '', error: '' });
+      useAnalysisStore.getState().setInstall({ phase: 'success', progress: 1, message: '', error: '' });
       const result = await desktop().analyzeCapabilities();
       setDetectors(result.detectors ?? []);
     } catch (error) {
-      setInstall({ phase: 'failed', progress: 0, message: '', error: analysisError(error, t) });
+      useAnalysisStore.getState().setInstall({ phase: 'failed', progress: 0, message: '', error: analysisError(error, t) });
     }
   }, []);
 
   const startProcess = useCallback(async () => {
-    const analysis = useAnalysisStore.getState().analysis;
+    const snapshot = useAnalysisStore.getState();
+    const analysis = snapshot.analysis;
     if (!analysis) {
+      return;
+    }
+    if (snapshot.videoPath && snapshot.videoPath !== videoPath) {
+      useAnalysisStore.getState().fail('分析结果属于另一个视频，请重新分析');
       return;
     }
     setCompiling(true);
@@ -140,7 +169,19 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
     } finally {
       setCompiling(false);
     }
-  }, [onStart]);
+  }, [onStart, videoPath]);
+
+  const rerun = useCallback(async () => {
+    // 重新分析会覆盖编辑过的轨道；有未编译的改动时先问一句。
+    if (useAnalysisStore.getState().dirty) {
+      const proceed =
+        typeof window.confirm !== 'function' || window.confirm(t('analyze.confirmRerun'));
+      if (!proceed) {
+        return;
+      }
+    }
+    await startAnalysis();
+  }, [startAnalysis, t]);
 
   const analysis = state.analysis;
   const video = analysis?.video ?? videoMeta;
@@ -168,7 +209,7 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
         <h2>{t('analyze.header')}</h2>
         <button
           type="button"
-          onClick={() => void startAnalysis()}
+          onClick={() => void rerun()}
           disabled={state.phase === 'running' || !detector?.available}
         >
           {analysis ? t('analyze.rerun') : t('analyze.run')}
@@ -214,7 +255,14 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
             currentFrame={state.currentFrame}
             selected={state.selected}
             onSelect={(trackId, intervalIndex) => state.select({ trackId, intervalIndex })}
-            onSeek={(frame) => state.setFrame(frame)}
+            onSeek={(frame) => {
+              state.setFrame(frame);
+              // 预览抽帧跟随工作区的当前帧，所以两处必须同步。
+              useWorkspaceStore.getState().setCurrentFrame(frame);
+            }}
+            onSetEdge={(trackId, intervalIndex, edge, frame) =>
+              state.setEdge(trackId, intervalIndex, edge, frame)
+            }
             onNudge={(trackId, intervalIndex, edge, delta) =>
               state.nudge(trackId, intervalIndex, edge, delta)
             }

@@ -506,7 +506,7 @@ export default function App() {
 
   useEffect(() => {
     // 抽帧队列只服务需要逐帧精度的标注页；导入页播放使用原生 video 解码。
-    if (view !== 'annotate' || !previewSessionId) {
+    if ((view !== 'annotate' && view !== 'analyze') || !previewSessionId) {
       activeSessionRef.current = '';
       pendingFrameRef.current = null;
       lastRenderedFrameRef.current = null;
@@ -556,7 +556,7 @@ export default function App() {
 
   useEffect(() => {
     // 当前帧变化时触发一次帧拉取请求。
-    if (view !== 'annotate' || !previewSessionId) return;
+    if ((view !== 'annotate' && view !== 'analyze') || !previewSessionId) return;
     pendingFrameRef.current = currentFrame;
     void pumpPreviewFrame();
   }, [currentFrame, previewSessionId, pumpPreviewFrame, view]);
@@ -980,7 +980,7 @@ export default function App() {
 
   useEffect(() => {
     if (!videoPath) return;
-    if (view !== 'annotate') return;
+    if (view !== 'annotate' && view !== 'analyze') return;
     if (previewSessionIdRef.current) return;
     void ensurePreviewSession(videoPath, videoMeta?.fps);
   }, [ensurePreviewSession, videoMeta?.fps, videoPath, view]);
@@ -1171,7 +1171,7 @@ export default function App() {
     try {
       const saved = await desktopClient.saveAnnotations({
         video_path: videoPath,
-        segments,
+        segments: source,
         video_meta: videoMeta ?? EMPTY_META,
       });
       if (!saved.success) {

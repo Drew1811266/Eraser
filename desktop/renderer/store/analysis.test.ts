@@ -116,3 +116,72 @@ describe('failure', () => {
     expect(useAnalysisStore.getState()).toMatchObject({ phase: 'idle', tracks: [], analysis: null });
   });
 });
+
+describe('editing boundaries', () => {
+  it('cannot nudge one block across its neighbour', () => {
+    useAnalysisStore.getState().succeed(analysis([track([[0, 10], [12, 30]])]));
+    useAnalysisStore.getState().nudge('wm-1', 1, 'start', -5);
+    expect(useAnalysisStore.getState().tracks[0]!.intervals[1]!.start_frame).toBe(11);
+  });
+
+  it('sets an edge to an absolute frame', () => {
+    useAnalysisStore.getState().succeed(analysis());
+    useAnalysisStore.getState().setEdge('wm-1', 0, 'end', 42);
+    expect(useAnalysisStore.getState().tracks[0]!.intervals[0]!.end_frame).toBe(42);
+  });
+
+  it('never leaves an interval without a keyframe', () => {
+    useAnalysisStore.getState().succeed(
+      analysis([
+        {
+          id: 'wm-1',
+          intervals: [{ start_frame: 0, end_frame: 20 }],
+          keyframes: [{ frame: 5, rect: { x: 0, y: 0, width: 10, height: 10 } }],
+          motion: 'static',
+        },
+      ]),
+    );
+    useAnalysisStore.getState().nudge('wm-1', 0, 'start', 10);
+    const state = useAnalysisStore.getState();
+    const interval = state.tracks[0]!.intervals[0]!;
+    expect(state.tracks[0]!.keyframes.some(
+      (keyframe) => keyframe.frame >= interval.start_frame && keyframe.frame <= interval.end_frame,
+    )).toBe(true);
+  });
+
+  it('moves the selection down when an earlier interval is deleted', () => {
+    useAnalysisStore.getState().succeed(analysis([track([[0, 10], [20, 30]])]));
+    useAnalysisStore.getState().select({ trackId: 'wm-1', intervalIndex: 1 });
+    useAnalysisStore.getState().remove('wm-1', 0);
+    expect(useAnalysisStore.getState().selected).toEqual({ trackId: 'wm-1', intervalIndex: 0 });
+  });
+
+  it('clears the selection when the selected interval is deleted', () => {
+    useAnalysisStore.getState().succeed(analysis([track([[0, 10], [20, 30]])]));
+    useAnalysisStore.getState().select({ trackId: 'wm-1', intervalIndex: 0 });
+    useAnalysisStore.getState().remove('wm-1', 0);
+    expect(useAnalysisStore.getState().selected).toBeNull();
+  });
+});
+
+describe('result ownership', () => {
+  it('remembers which video the analysis belongs to', () => {
+    useAnalysisStore.getState().succeed(analysis(), 'C:/a.mp4');
+    expect(useAnalysisStore.getState().videoPath).toBe('C:/a.mp4');
+  });
+
+  it('drops the old result when analysing another video', () => {
+    useAnalysisStore.getState().succeed(analysis(), 'C:/a.mp4');
+    useAnalysisStore.getState().begin('t2', 'C:/b.mp4');
+    const state = useAnalysisStore.getState();
+    expect(state.analysis).toBeNull();
+    expect(state.tracks).toEqual([]);
+    expect(state.videoPath).toBe('C:/b.mp4');
+  });
+
+  it('keeps the result when re-analysing the same video', () => {
+    useAnalysisStore.getState().succeed(analysis(), 'C:/a.mp4');
+    useAnalysisStore.getState().begin('t2', 'C:/a.mp4');
+    expect(useAnalysisStore.getState().analysis).not.toBeNull();
+  });
+});

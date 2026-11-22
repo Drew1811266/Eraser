@@ -1,6 +1,6 @@
 // 时间线：每条轨道一行泳道，区间是块，切点是竖线，播放头可拖动。
 // 位置一律用百分比，不依赖元素测量，因此在 jsdom 里也能断言。
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useI18n } from '../i18n/useI18n';
 import type { FrameInterval, WatermarkTrack } from '../../shared/ipc';
 import type { Selection } from '../store/analysis';
@@ -16,6 +16,7 @@ interface TimelineProps {
   onSelect: (trackId: string, intervalIndex: number) => void;
   onSeek: (frame: number) => void;
   onNudge: (trackId: string, intervalIndex: number, edge: Edge, delta: number) => void;
+  onSetEdge: (trackId: string, intervalIndex: number, edge: Edge, frame: number) => void;
 }
 
 export function Timeline({
@@ -28,43 +29,52 @@ export function Timeline({
   onSelect,
   onSeek,
   onNudge,
+  onSetEdge,
 }: TimelineProps) {
   const { t } = useI18n();
   const laneRef = useRef<HTMLDivElement>(null);
+  const detachRef = useRef<(() => void) | null>(null);
   const total = Math.max(1, frameCount);
   const last = Math.max(0, total - 1);
+
+  // 拖拽监听挂在 window 上；组件卸载时必须摘掉，否则会继续改数据。
+  useEffect(() => () => detachRef.current?.(), []);
 
   const percent = (frame: number): string => `${(frame / total) * 100}%`;
   const span = (frames: number): string => `${(Math.max(1, frames) / total) * 100}%`;
 
-  // 拖动一个边界：像素差按泳道宽度换算成帧，边界本身由 store 重新钳制。
+  // 拖动一个边界：用指针的绝对位置换算目标帧，避免"请求了但被钳制"
+  // 的差值累积成永久漂移。
   const startDrag = (
     event: React.PointerEvent<HTMLElement>,
     trackId: string,
     intervalIndex: number,
     edge: Edge,
+    originFrame: number,
   ): void => {
-    const width = laneRef.current?.getBoundingClientRect().width ?? 0;
-    if (width <= 0) {
+    const lane = laneRef.current;
+    const width = lane?.getBoundingClientRect().width ?? 0;
+    if (!lane || width <= 0) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
+    detachRef.current?.();
     const originX = event.clientX;
-    let applied = 0;
     const move = (moveEvent: PointerEvent): void => {
-      const delta = Math.round(((moveEvent.clientX - originX) / width) * total) - applied;
-      if (delta !== 0) {
-        applied += delta;
-        onNudge(trackId, intervalIndex, edge, delta);
-      }
+      const target = originFrame + Math.round(((moveEvent.clientX - originX) / width) * total);
+      onSetEdge(trackId, intervalIndex, edge, target);
     };
     const stop = (): void => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      detachRef.current = null;
     };
+    detachRef.current = stop;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
   };
 
   return (
@@ -127,11 +137,17 @@ export function Timeline({
                 >
                   <span
                     className="timeline__handle timeline__handle--start"
-                    onPointerDown={(event) => startDrag(event, track.id, index, 'start')}
+                    data-testid={`handle-start-${track.id}-${index}`}
+                    onPointerDown={(event) =>
+                      startDrag(event, track.id, index, 'start', interval.start_frame)
+                    }
                   />
                   <span
                     className="timeline__handle timeline__handle--end"
-                    onPointerDown={(event) => startDrag(event, track.id, index, 'end')}
+                    data-testid={`handle-end-${track.id}-${index}`}
+                    onPointerDown={(event) =>
+                      startDrag(event, track.id, index, 'end', interval.end_frame)
+                    }
                   />
                   {isSelected ? (
                     <span className="timeline__nudges">

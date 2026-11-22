@@ -1,13 +1,9 @@
 // 分析报告卡片：告诉用户"找到了什么"，以及在动手之前还需要做什么（装检测器）。
 import { useI18n } from '../i18n/useI18n';
 import type { Analysis, DetectorEntry } from '../../shared/ipc';
+import type { InstallState } from '../store/analysis';
 
-export interface InstallState {
-  phase: 'idle' | 'running' | 'failed' | 'success';
-  progress: number;
-  message: string;
-  error: string;
-}
+export type { InstallState };
 
 interface AnalysisReportProps {
   analysis: Analysis | null;

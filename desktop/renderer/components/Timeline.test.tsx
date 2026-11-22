@@ -30,6 +30,7 @@ function renderTimeline(overrides: Partial<Parameters<typeof Timeline>[0]> = {})
     onSelect: vi.fn(),
     onSeek: vi.fn(),
     onNudge: vi.fn(),
+    onSetEdge: vi.fn(),
     ...overrides,
   };
   const view = render(<Timeline {...props} />);
@@ -110,3 +111,36 @@ describe('empty state', () => {
     expect(screen.getByLabelText('播放头')).toBeTruthy();
   });
 });
+
+describe('dragging an edge', () => {
+  function stubLane(): void {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 200, bottom: 20, width: 200, height: 20, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('asks for an absolute frame, not an accumulated delta', () => {
+    stubLane();
+    const onSetEdge = vi.fn();
+    renderTimeline({ onSetEdge });
+    const handle = screen.getByTestId('handle-start-wm-1-0');
+    fireEvent.pointerDown(handle, { clientX: 0 });
+    // 200px 宽、100 帧：移动 50px = 25 帧。
+    fireEvent.pointerMove(window, { clientX: 50 });
+    expect(onSetEdge).toHaveBeenCalledWith('wm-1', 0, 'start', 25);
+  });
+
+  it('stops listening after pointercancel', () => {
+    stubLane();
+    const onSetEdge = vi.fn();
+    renderTimeline({ onSetEdge });
+    fireEvent.pointerDown(screen.getByTestId('handle-end-wm-1-0'), { clientX: 0 });
+    fireEvent.pointerCancel(window);
+    fireEvent.pointerMove(window, { clientX: 80 });
+    expect(onSetEdge).not.toHaveBeenCalled();
+  });
+});
+

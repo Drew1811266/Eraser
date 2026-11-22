@@ -106,6 +106,24 @@ describe('analysis', () => {
     expect(screen.getByText('wm-1')).toBeTruthy();
   });
 
+  it('does not start a second analysis on a double click', async () => {
+    let release: ((value: { task_id: string }) => void) | undefined;
+    const api = bridge({
+      analyzeStart: vi.fn(
+        () =>
+          new Promise<{ task_id: string }>((resolve) => {
+            release = resolve;
+          }),
+      ),
+    });
+    renderView(api);
+    const button = await screen.findByText('开始分析');
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(api.analyzeStart).toHaveBeenCalledTimes(1);
+    release?.({ task_id: 'analyze-1' });
+  });
+
   it('shows why the analysis failed', async () => {
     const api = bridge({
       status: vi.fn(async () => ({ task_id: 'analyze-1', state: 'failed', error: 'DETECTOR_MISSING: 没有检测器' })),
@@ -146,5 +164,39 @@ describe('editing and handing off', () => {
     expect(onStart.mock.calls[0]![0]).toEqual([
       { start_frame: 0, end_frame: 49, rect: { x: 10, y: 10, width: 40, height: 20 } },
     ]);
+  });
+});
+
+describe('result ownership', () => {
+  it('refuses to process a result that belongs to another video', async () => {
+    const api = bridge();
+    renderView(api);
+    // 模拟"分析完 A 又导入了 B"：结果仍在 store 里，但归属不是当前视频。
+    act(() => useAnalysisStore.getState().succeed(analysisPayload as never, 'C:/other.mp4'));
+    await screen.findByText('分析结果');
+    fireEvent.click(screen.getByText('开始处理'));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('另一个视频'));
+    expect(api.compileAnnotations).not.toHaveBeenCalled();
+  });
+});
+
+describe('re-analysing', () => {
+  it('asks before discarding edits', async () => {
+    const api = bridge();
+    renderView(api);
+    fireEvent.click(await screen.findByText('开始分析'));
+    await screen.findByText('分析结果');
+    act(() => useAnalysisStore.getState().nudge('wm-1', 0, 'end', 1));
+
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirm);
+    fireEvent.click(screen.getByText('重新分析'));
+    expect(confirm).toHaveBeenCalled();
+    expect(api.analyzeStart).toHaveBeenCalledTimes(1);
+
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    fireEvent.click(screen.getByText('重新分析'));
+    await waitFor(() => expect(api.analyzeStart).toHaveBeenCalledTimes(2));
+    vi.unstubAllGlobals();
   });
 });

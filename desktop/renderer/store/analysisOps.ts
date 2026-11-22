@@ -26,16 +26,19 @@ function pruneKeyframes(keyframes: RectKeyframe[], intervals: FrameInterval[]): 
 /**
  * Keep every interval covered by at least one keyframe.
  *
- * The compiler samples rectangles per interval; an interval with no keyframe has
- * nothing to sample, so a split that leaves one side empty borrows the nearest
- * rectangle instead of emitting a hole.
+ * The compiler samples rectangles per interval and silently skips an interval
+ * with none, so a track that keeps a block on the timeline but loses its
+ * keyframe would look confirmed and yet never be removed. The borrowed frame is
+ * clamped *into* the interval: copying the nearest keyframe's frame number
+ * verbatim could leave the synthesized keyframe outside the very interval it is
+ * meant to cover.
  */
 function ensureKeyframes(
   keyframes: RectKeyframe[],
   intervals: FrameInterval[],
 ): RectKeyframe[] {
   const kept = pruneKeyframes(keyframes, intervals);
-  if (!kept.length || !keyframes.length) {
+  if (!keyframes.length) {
     return kept;
   }
   const filled = [...kept];
@@ -48,9 +51,19 @@ function ensureKeyframes(
         ? candidate
         : best,
     );
-    filled.push({ frame: interval.start_frame, rect: { ...nearest.rect } });
+    filled.push({
+      frame: clamp(nearest.frame, interval.start_frame, interval.end_frame),
+      rect: { ...nearest.rect },
+    });
   }
   return filled.sort((a, b) => a.frame - b.frame);
+}
+
+export interface EdgeBounds {
+  /** Lowest frame the start edge may take (usually the previous interval's end + 1). */
+  min?: number;
+  /** Highest frame the end edge may take (usually the next interval's start - 1). */
+  max?: number;
 }
 
 /** Move one edge; an edge may close the interval but never cross the other edge. */
@@ -59,14 +72,40 @@ export function nudgeInterval(
   edge: Edge,
   delta: number,
   frameCount: number,
+  bounds: EdgeBounds = {},
 ): FrameInterval {
   const last = lastFrame(frameCount);
   const start = clamp(interval.start_frame, 0, last);
   const end = clamp(interval.end_frame, start, last);
   if (edge === 'start') {
-    return { start_frame: clamp(start + delta, 0, end), end_frame: end };
+    const lowest = clamp(bounds.min ?? 0, 0, end);
+    return { start_frame: clamp(start + delta, lowest, end), end_frame: end };
   }
-  return { start_frame: start, end_frame: clamp(end + delta, start, last) };
+  const highest = clamp(bounds.max ?? last, start, last);
+  return { start_frame: start, end_frame: clamp(end + delta, start, highest) };
+}
+
+/** Put one edge exactly on a frame (dragging), bounded by the neighbours. */
+export function setEdgeFrame(
+  interval: FrameInterval,
+  edge: Edge,
+  frame: number,
+  frameCount: number,
+  bounds: EdgeBounds = {},
+): FrameInterval {
+  const last = lastFrame(frameCount);
+  if (edge === 'start') {
+    const lowest = clamp(bounds.min ?? 0, 0, interval.end_frame);
+    return {
+      start_frame: clamp(Math.round(frame), lowest, interval.end_frame),
+      end_frame: interval.end_frame,
+    };
+  }
+  const highest = clamp(bounds.max ?? last, interval.start_frame, last);
+  return {
+    start_frame: interval.start_frame,
+    end_frame: clamp(Math.round(frame), interval.start_frame, highest),
+  };
 }
 
 /** Cut `frame` off the start of the following half. No-op when the cut misses. */
@@ -178,7 +217,7 @@ export function clampIntervals(
     if (!merged.length) {
       continue;
     }
-    result.push({ ...track, intervals: merged, keyframes: pruneKeyframes(track.keyframes, merged) });
+    result.push({ ...track, intervals: merged, keyframes: ensureKeyframes(track.keyframes, merged) });
   }
   return result;
 }
