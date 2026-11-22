@@ -4,7 +4,14 @@ import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { EngineError } from './services/engineClient';
 import { EngineHost } from './services/engineHost';
 import { wmrCall } from './wmr';
-import { IPC, type PickResult, type StartRequest, type UpscaleRequest } from '../shared/ipc';
+import {
+  IPC,
+  type AnalyzeStartRequest,
+  type CompileRequest,
+  type PickResult,
+  type StartRequest,
+  type UpscaleRequest,
+} from '../shared/ipc';
 
 const VIDEO_FILTERS = [
   { name: '视频', extensions: ['mp4', 'mov', 'mkv', 'avi', 'webm', 'flv', 'wmv'] },
@@ -84,6 +91,44 @@ export function registerIpc(host: EngineHost): void {
       rethrow(error);
     }
   });
+
+  ipcMain.handle(IPC.analyzeCapabilities, async () => {
+    try {
+      return await host.request('analyze.capabilities', {});
+    } catch (error) {
+      rethrow(error);
+    }
+  });
+
+  ipcMain.handle(IPC.analyzeStart, async (_event, request: AnalyzeStartRequest) => {
+    try {
+      return await host.request('analyze.start', request as unknown as Record<string, unknown>);
+    } catch (error) {
+      rethrow(error);
+    }
+  });
+
+  ipcMain.handle(IPC.compileAnnotations, async (_event, request: CompileRequest) => {
+    try {
+      return await host.request(
+        'annotation.compile',
+        request as unknown as Record<string, unknown>,
+      );
+    } catch (error) {
+      rethrow(error);
+    }
+  });
+
+  ipcMain.handle(
+    IPC.installDetector,
+    async (_event, request: { model_id: string; force?: boolean }) => {
+      try {
+        return await host.request('model.install', request);
+      } catch (error) {
+        rethrow(error);
+      }
+    },
+  );
 
   ipcMain.handle(IPC.cancel, async (_event, taskId: string) => {
     try {

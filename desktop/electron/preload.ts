@@ -11,7 +11,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   IPC,
   WMR_METHODS,
+  type AnalyzeStartRequest,
   type Capabilities,
+  type CompileRequest,
   type EngineState,
   type EraserBridge,
   type PickResult,
@@ -42,6 +44,12 @@ const bridge: EraserBridge = {
   reveal: (path: string): Promise<void> => ipcRenderer.invoke(IPC.reveal, path),
   openExternal: (path: string): Promise<void> => ipcRenderer.invoke(IPC.openExternal, path),
   defaultOutputDir: (): Promise<string> => ipcRenderer.invoke(IPC.defaultOutputDir),
+  analyzeCapabilities: () => ipcRenderer.invoke(IPC.analyzeCapabilities),
+  analyzeStart: (request: AnalyzeStartRequest) => ipcRenderer.invoke(IPC.analyzeStart, request),
+  compileAnnotations: (request: CompileRequest) =>
+    ipcRenderer.invoke(IPC.compileAnnotations, request),
+  installDetector: (request: { model_id: string; force?: boolean }) =>
+    ipcRenderer.invoke(IPC.installDetector, request),
   onProgress: (listener) => subscribe<TaskStatus>(IPC.progress, listener),
   onEngineState: (listener) => subscribe<EngineState>(IPC.engineState, listener),
   onEngineLog: (listener) => subscribe<string>(IPC.engineLog, listener),

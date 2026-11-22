@@ -53,9 +53,10 @@ beforeEach(() => {
 describe('eraser bridge', () => {
   it('exposes the typed shell surface', () => {
     expect(Object.keys(global('eraser')).sort()).toEqual([
-      'cancel', 'capabilities', 'defaultOutputDir', 'onEngineLog', 'onEngineState',
-      'onProgress', 'openExternal', 'pickOutputDir', 'pickVideo', 'probe', 'reveal',
-      'start', 'status', 'upscale',
+      'analyzeCapabilities', 'analyzeStart', 'cancel', 'capabilities',
+      'compileAnnotations', 'defaultOutputDir', 'installDetector', 'onEngineLog',
+      'onEngineState', 'onProgress', 'openExternal', 'pickOutputDir', 'pickVideo',
+      'probe', 'reveal', 'start', 'status', 'upscale',
     ]);
   });
 
@@ -121,5 +122,36 @@ describe('wmr bridge', () => {
     // Progress reaches the UI as a DOM event; adding an ipcRenderer listener
     // here would duplicate every frame.
     expect(listeners.size).toBe(0);
+  });
+});
+
+describe('analysis bridge', () => {
+  it('exposes the four analysis calls', () => {
+    const bridge = global('eraser');
+    for (const name of [
+      'analyzeCapabilities',
+      'analyzeStart',
+      'compileAnnotations',
+      'installDetector',
+    ]) {
+      expect(bridge[name], `${name} is not exposed`).toBeTypeOf('function');
+    }
+  });
+
+  it('routes each analysis call to its own channel', async () => {
+    invocations.length = 0;
+    const bridge = global('eraser');
+
+    await bridge.analyzeCapabilities();
+    await bridge.analyzeStart({ input_path: 'C:/v.mp4' });
+    await bridge.compileAnnotations({ watermarks: [], shots: [], video: {} });
+    await bridge.installDetector({ model_id: 'florence2' });
+
+    expect(invocations.map((entry) => entry.channel)).toEqual([
+      IPC.analyzeCapabilities,
+      IPC.analyzeStart,
+      IPC.compileAnnotations,
+      IPC.installDetector,
+    ]);
   });
 });

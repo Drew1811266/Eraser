@@ -149,3 +149,41 @@ describe('registerIpc', () => {
     await expect(handlers.get(IPC.probe)!(null, 'C:/v.mp4')).rejects.toThrow(/ENGINE_EXITED/);
   });
 });
+
+describe('analysis methods', () => {
+  it('forwards the analysis surface to the engine', async () => {
+    const { host, requests } = fakeHost();
+    registerIpc(host);
+    const call = (channel: string, arg?: unknown) => handlers.get(channel)!(null, arg);
+
+    await call(IPC.analyzeCapabilities);
+    await call(IPC.analyzeStart, { input_path: 'C:/v.mp4', sample_step: 5 });
+    await call(IPC.compileAnnotations, {
+      watermarks: [],
+      shots: [],
+      video: { width: 640, height: 360, frame_count: 100 },
+    });
+    await call(IPC.installDetector, { model_id: 'florence2' });
+
+    expect(requests.map((entry) => entry.method)).toEqual([
+      'analyze.capabilities',
+      'analyze.start',
+      'annotation.compile',
+      'model.install',
+    ]);
+    expect(requests[1]!.params).toEqual({ input_path: 'C:/v.mp4', sample_step: 5 });
+    expect(requests[3]!.params).toEqual({ model_id: 'florence2' });
+  });
+
+  it('registers the analysis channels', () => {
+    const { host } = fakeHost();
+    registerIpc(host);
+    const required = [
+      IPC.analyzeCapabilities,
+      IPC.analyzeStart,
+      IPC.compileAnnotations,
+      IPC.installDetector,
+    ];
+    expect(required.filter((channel) => !handlers.has(channel))).toEqual([]);
+  });
+});

@@ -147,6 +147,80 @@ export type WmrMethod = (typeof WMR_METHODS)[number];
   [method: string]: (payload?: unknown) => Promise<unknown>;
 }
 
+/** Mirrors `contract/methods.json` → `WatermarkTrack`. */
+export interface WatermarkTrack {
+  id: string;
+  intervals: FrameInterval[];
+  keyframes: RectKeyframe[];
+  motion?: string;
+  confidence?: number;
+  source?: string;
+  notes?: string[];
+}
+
+export interface FrameInterval {
+  start_frame: number;
+  end_frame: number;
+}
+
+export interface RectKeyframe {
+  frame: number;
+  rect: Rect;
+}
+
+export interface AnalysisVideo {
+  width: number;
+  height: number;
+  fps: number;
+  frame_count: number;
+  duration_seconds: number;
+}
+
+export interface SuggestedStrategy {
+  engine_id: string;
+  split_by_shot: boolean;
+  warnings: string[];
+}
+
+export interface Analysis {
+  video: AnalysisVideo;
+  shots: FrameInterval[];
+  watermarks: WatermarkTrack[];
+  suggested: SuggestedStrategy;
+  model_id: string;
+  elapsed_ms: number;
+}
+
+export interface DetectorEntry {
+  model_id: string;
+  display_name: string;
+  installed: boolean;
+  available: boolean;
+  blocked_reason?: string;
+}
+
+export interface DetectorCapabilities {
+  detectors: DetectorEntry[];
+  available: boolean;
+}
+
+export interface AnalyzeStartRequest {
+  input_path: string;
+  sample_step?: number;
+  max_tracks?: number;
+  min_confidence?: number;
+}
+
+export interface CompileRequest {
+  watermarks: WatermarkTrack[];
+  shots: FrameInterval[];
+  video: { width: number; height: number; frame_count: number };
+}
+
+export interface CompileResult {
+  segments: Segment[];
+}
+
 export interface EraserBridge {
   capabilities(): Promise<Capabilities>;
   pickVideo(): Promise<PickResult>;
@@ -159,6 +233,10 @@ export interface EraserBridge {
   reveal(path: string): Promise<void>;
   openExternal(path: string): Promise<void>;
   defaultOutputDir(): Promise<string>;
+  analyzeCapabilities(): Promise<DetectorCapabilities>;
+  analyzeStart(request: AnalyzeStartRequest): Promise<{ task_id: string }>;
+  compileAnnotations(request: CompileRequest): Promise<CompileResult>;
+  installDetector(request: { model_id: string; force?: boolean }): Promise<{ task_id: string }>;
   onProgress(listener: (status: TaskStatus) => void): () => void;
   onEngineState(listener: (state: EngineState) => void): () => void;
   onEngineLog(listener: (line: string) => void): () => void;
@@ -173,6 +251,10 @@ export const IPC = {
   upscale: 'engine:upscale',
   cancel: 'engine:cancel',
   status: 'engine:status',
+  analyzeCapabilities: 'engine:analyze-capabilities',
+  analyzeStart: 'engine:analyze-start',
+  compileAnnotations: 'engine:compile-annotations',
+  installDetector: 'engine:install-detector',
   reveal: 'shell:reveal',
   openExternal: 'shell:open-external',
   defaultOutputDir: 'app:default-output-dir',
