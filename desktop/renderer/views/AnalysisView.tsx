@@ -5,6 +5,7 @@ import { useI18n } from '../i18n/useI18n';
 import { Timeline } from '../components/Timeline';
 import { AnalysisReport, type InstallState } from './AnalysisReport';
 import { useAnalysisStore } from '../store/analysis';
+import { analysisError } from './analysisErrors';
 import type {
   Analysis,
   DetectorEntry,
@@ -23,10 +24,6 @@ function desktop(): EraserBridge {
     throw new Error('桌面接口不可用');
   }
   return api;
-}
-
-function reason(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function waitFor(taskId: string, onTick?: (status: TaskStatus) => void): Promise<TaskStatus> {
@@ -70,7 +67,7 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
         }
       } catch (error) {
         if (!cancelled) {
-          state.fail(reason(error));
+          state.fail(analysisError(error, t));
         }
       }
     })();
@@ -98,7 +95,7 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
         useAnalysisStore.getState().fail(status.error || status.state);
       }
     } catch (error) {
-      useAnalysisStore.getState().fail(reason(error));
+      useAnalysisStore.getState().fail(analysisError(error, t));
     }
   }, [videoPath, state]);
 
@@ -117,7 +114,7 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
       const result = await desktop().analyzeCapabilities();
       setDetectors(result.detectors ?? []);
     } catch (error) {
-      setInstall({ phase: 'failed', progress: 0, message: '', error: reason(error) });
+      setInstall({ phase: 'failed', progress: 0, message: '', error: analysisError(error, t) });
     }
   }, []);
 
@@ -139,7 +136,7 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
       });
       await onStart(segments);
     } catch (error) {
-      useAnalysisStore.getState().fail(reason(error));
+      useAnalysisStore.getState().fail(analysisError(error, t));
     } finally {
       setCompiling(false);
     }

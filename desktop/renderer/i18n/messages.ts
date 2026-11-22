@@ -313,6 +313,11 @@ const zh: MessageDict = {
   'analyze.addManual': '添加水印',
   'analyze.start': '开始处理',
   'analyze.compiling': '正在编译…',
+  'error.detectorMissing': '检测器未安装或不可用',
+  'error.taskNotFound': '任务已丢失，请重新开始',
+  'error.invalidParams': '请求参数不合法',
+  'error.engineExited': '引擎已退出，请重启软件',
+  'error.notImplemented': '该功能尚未支持',
 };
 
 // 英文词典：key 与中文词典保持一一对应。
@@ -624,6 +629,11 @@ const en: MessageDict = {
   'analyze.addManual': 'Add watermark',
   'analyze.start': 'Start processing',
   'analyze.compiling': 'Compiling…',
+  'error.detectorMissing': 'The detector is missing or unavailable',
+  'error.taskNotFound': 'The task was lost; start again',
+  'error.invalidParams': 'The request was invalid',
+  'error.engineExited': 'The engine exited; restart the app',
+  'error.notImplemented': 'This is not supported yet',
 };
 
 // 对外导出语言映射表，供 useI18n 按语言读取。
