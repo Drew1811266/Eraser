@@ -11,7 +11,8 @@
   带进度、可取消；引擎本体仍然不依赖 torch。
 - `analyze.capabilities` 会列出检测器及其状态与原因（未安装 / 权重缺失 / 只有 CPU）。
 - 新增评测：`scripts/make-analysis-fixtures.py` + `scripts/eval-analysis.py`，
-  7 组带真值素材上**召回 1.00、误报 0、区间/运动/镜头数全部正确**；无真值回放校准同样 7/7。
+  8 组带真值素材上**命中率 1.00（n/a 表示无探针）、误报帧 ≤0.04、区间/运动/镜头数全部正确**；
+  无真值回放校准同样 8/8。
 - 实测基线见 [docs/13-quality-baseline.md](docs/13-quality-baseline.md)。
 
 ---

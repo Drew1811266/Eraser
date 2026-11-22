@@ -22,22 +22,26 @@ def _detector_entries() -> list[dict[str, Any]]:
     """Every known detector, including ones that need installing.
 
     The confirmation screen needs to offer the install, so "Florence exists but
-    is not installed" has to be a row with a reason, not an omission.
+    is not installed" has to be a row with a reason, not an omission. `installed`
+    and `available` are different questions: a wiped weights directory leaves the
+    runtime installed but unusable.
     """
     entries: list[dict[str, Any]] = []
     for detector in catalog():
+        installed = False
         available = False
         reason = ""
         try:
+            installed = bool(detector.is_installed())
             available = bool(detector.is_available())
-            reason = "" if available else (detector.get_warning() or "not installed")
+            reason = detector.get_warning()
         except Exception as exc:  # noqa: BLE001 - a probe must not break the list
             reason = f"{type(exc).__name__}: {exc}"
         entries.append(
             {
                 "model_id": detector.model_id,
                 "display_name": detector.display_name,
-                "installed": available,
+                "installed": installed,
                 "available": available,
                 "blocked_reason": reason,
             }
@@ -45,17 +49,10 @@ def _detector_entries() -> list[dict[str, Any]]:
     return entries
 
 
-def _pick_detector(model_id: str | None) -> Any:
+def _pick_detector() -> Any:
     detectors = available_detectors()
     if not detectors:
         raise RpcError("DETECTOR_MISSING", "No watermark detector is installed", {})
-    if model_id:
-        for detector in detectors:
-            if detector.model_id == model_id:
-                return detector
-        raise RpcError(
-            "DETECTOR_MISSING", f"Unknown detector: {model_id}", {"model_id": model_id}
-        )
     return detectors[0]
 
 
@@ -115,7 +112,7 @@ def register(server: RpcServer, manager: TaskManager) -> None:
         if not Path(input_path).is_file():
             raise RpcError("INVALID_PARAMS", f"File not found: {input_path}", {"path": input_path})
 
-        detector = _pick_detector(None)
+        detector = _pick_detector()
         task = manager.create("analyze")
         thread = threading.Thread(
             target=_run_task,

@@ -120,14 +120,23 @@ def main(argv: list[str] | None = None) -> int:
 
         elapsed = time.perf_counter() - started
         per_image = elapsed / max(1, len(chunk))
+        if len(texts) != len(chunk):
+            # Truncating here would look exactly like "the last frames had no
+            # watermark"; refuse instead of inventing an answer.
+            return _fail(
+                f"the model returned {len(texts)} outputs for {len(chunk)} frames"
+            )
         for item, picture, text in zip(chunk, pictures, texts):
             try:
                 parsed = processor.post_process_generation(
                     text, task=task, image_size=picture.size
                 )
                 boxes = (parsed.get(task) or {}).get("bboxes") or []
-            except Exception:  # noqa: BLE001 - one odd decode must not kill the run
-                boxes = []
+            except Exception as exc:  # noqa: BLE001 - a broken runtime must say so
+                return _fail(
+                    f"cannot parse the model output for frame {item.get('frame')}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
             _emit(
                 {
                     "type": "frame",

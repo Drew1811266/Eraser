@@ -503,6 +503,7 @@ class ModelInstallTests(unittest.TestCase):
 | `blink` | 出现 2s → 消失 3s → 再现 | 1 track，2 区间 |
 | `multi_shot` | 3 个镜头，同一角标 | 1 track，3 区间，3 个 segment |
 | `clean` | 无水印 | 0 track，`no_watermark` |
+| `fullhd_corner` | 1920×1080 角标 | 1 track |
 
 评测指标（`eval-analysis.py` 输出）：
 

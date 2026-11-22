@@ -64,6 +64,25 @@ FILES: tuple[WeightFile, ...] = (
 )
 
 
+def missing(destination: str | Path, *, verify_hash: bool = False) -> list[str]:
+    """Which manifest files are not on disk (and, optionally, not intact).
+
+    Readiness must consider *every* file: the 444 MB blob is the third of nine,
+    so a cancelled install can leave the big one present and the model's own
+    Python absent. Checking only `model.safetensors` reports "installed" for a
+    runtime that cannot load.
+    """
+    root = Path(destination)
+    absent: list[str] = []
+    for item in FILES:
+        path = root / item.name
+        if not path.is_file() or path.stat().st_size != item.bytes:
+            absent.append(item.name)
+        elif verify_hash and _digest(path) != item.sha256:
+            absent.append(item.name)
+    return absent
+
+
 def url_for(name: str, *, base_url: str = BASE_URL) -> str:
     return f"{base_url.rstrip('/')}/{name}"
 

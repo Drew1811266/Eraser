@@ -121,7 +121,7 @@ def run_analysis(
         raise AnalysisError(f"cannot sample frames: {exc}") from exc
 
     detector.load()
-    raw = detector.detect_many(frames)
+    raw = detector.detect_many(frames, cancel=cancel)
     detections: dict[int, list[Detection]] = {}
     total = max(1, len(frames))
     for position, (frame_index, image) in enumerate(frames, start=1):

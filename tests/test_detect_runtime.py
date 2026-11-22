@@ -126,11 +126,14 @@ class InstallTests(unittest.TestCase):
             with patch.object(runtime, "_ensure_venv", fake_venv), patch.object(
                 runtime, "_install_dependencies", fake_deps
             ), patch.object(runtime.weights, "download_all", fake_weights), patch.object(
-                runtime, "_detect_cuda", return_value=True
+                runtime, "_torch_cuda", return_value=True
+            ), patch.object(
+                runtime, "_versions", return_value={"torch": "test"}
             ):
                 state = runtime.install()
             self.assertEqual(state["phase"], "ready")
             self.assertTrue(state["cuda"])
+            self.assertEqual(state["versions"], {"torch": "test"})
             self.assertTrue(runtime.is_ready())
 
     def test_a_failed_download_marks_the_state_failed(self) -> None:

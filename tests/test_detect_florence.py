@@ -44,7 +44,9 @@ class _Scratch(unittest.TestCase):
         else:
             cls.addClassCleanup(os.environ.__setitem__, "ERASER_TEMP_DIR", previous)
 
-    def _detector(self, script: str, weights: Path | None = None) -> FlorenceDetector:
+    def _detector(
+        self, script: str, weights: Path | None = None, **kwargs
+    ) -> FlorenceDetector:
         scratch = Path(tempfile.mkdtemp(dir=SCRATCH))
         self.addCleanup(shutil.rmtree, scratch, ignore_errors=True)
         worker = scratch / "fake_worker.py"
@@ -53,7 +55,13 @@ class _Scratch(unittest.TestCase):
         weights_dir.mkdir(parents=True, exist_ok=True)
         (weights_dir / "model.safetensors").write_bytes(b"x")
         return FlorenceDetector(
-            weights_dir=weights_dir, python=sys.executable, worker=worker
+            weights_dir=weights_dir,
+            python=sys.executable,
+            worker=worker,
+            # The real check compares nine file sizes; a fake worker needs none of
+            # them, and writing 444 MB in a unit test is not a test.
+            weights_check=lambda _path: [],
+            **kwargs,
         )
 
 
@@ -92,16 +100,42 @@ class WorkerEnvironmentTests(_Scratch):
     def test_the_environment_is_actually_passed_to_the_process(self) -> None:
         detector = self._detector(FAKE_WORKER)
         with patch(
-            "engine.pipeline.detect.florence.subprocess.run", wraps=subprocess.run
-        ) as run:
+            "engine.pipeline.detect.florence.subprocess.Popen", wraps=subprocess.Popen
+        ) as popen:
             detector.detect_many([(0, _frame())])
-        self.assertTrue(run.called)
-        env = run.call_args.kwargs.get("env")
+        self.assertTrue(popen.called)
+        env = popen.call_args.kwargs.get("env")
         self.assertIsInstance(env, dict)
         self.assertEqual(env["HF_HUB_OFFLINE"], "1")
 
 
 class FailureTests(_Scratch):
+    def test_a_skipped_frame_is_an_error_not_an_empty_result(self) -> None:
+        script = (
+            "import json, sys\n"
+            "job = json.loads(open(sys.argv[2], encoding='utf-8').read())\n"
+            "first = job['images'][0]\n"
+            "print(json.dumps({'type': 'frame', 'frame': first['frame'], 'boxes': []}), flush=True)\n"
+            "print(json.dumps({'type': 'done'}), flush=True)\n"
+        )
+        detector = self._detector(script)
+        with self.assertRaises(DetectorError) as caught:
+            detector.detect_many([(0, _frame()), (15, _frame())])
+        self.assertIn("skipped", str(caught.exception))
+
+    def test_cancellation_kills_a_running_worker(self) -> None:
+        import threading
+        import time as clock
+
+        detector = self._detector("import time\ntime.sleep(30)\n", timeout=60)
+        cancel = threading.Event()
+        threading.Timer(0.3, cancel.set).start()
+        started = clock.perf_counter()
+        with self.assertRaises(DetectorError) as caught:
+            detector.detect_many([(0, _frame())], cancel=cancel)
+        self.assertIn("cancelled", str(caught.exception).lower())
+        self.assertLess(clock.perf_counter() - started, 10, "cancel must not wait for the timeout")
+
     def test_non_zero_exit_becomes_a_detector_error(self) -> None:
         detector = self._detector("import sys; sys.stderr.write('boom'); sys.exit(3)")
         with self.assertRaises(DetectorError) as caught:
@@ -126,7 +160,24 @@ class AvailabilityTests(_Scratch):
     def test_missing_weights_means_not_available(self) -> None:
         detector = FlorenceDetector(weights_dir="/nope", python=sys.executable)
         self.assertFalse(detector.is_available())
-        self.assertIn("weights", detector.get_warning())
+        self.assertIn("missing", detector.get_warning())
+
+    def test_a_partial_weight_set_is_not_available(self) -> None:
+        # A cancelled install leaves the 444 MB blob and drops the model's own
+        # Python; readiness must not be decided by one file.
+        with tempfile.TemporaryDirectory(dir=SCRATCH) as scratch:
+            weights_dir = Path(scratch) / "weights"
+            weights_dir.mkdir()
+            (weights_dir / "model.safetensors").write_bytes(b"x")
+            detector = FlorenceDetector(weights_dir=weights_dir, python=sys.executable)
+            self.assertFalse(detector.is_available())
+            self.assertIn("missing", detector.get_warning())
+
+    def test_a_wipe_leaves_the_runtime_installed_but_unusable(self) -> None:
+        with tempfile.TemporaryDirectory(dir=SCRATCH) as scratch:
+            detector = FlorenceDetector(weights_dir=scratch, python=sys.executable)
+            self.assertTrue(detector.is_installed())
+            self.assertFalse(detector.is_available())
 
     def test_missing_interpreter_means_not_available(self) -> None:
         with tempfile.TemporaryDirectory(dir=SCRATCH) as scratch:

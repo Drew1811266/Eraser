@@ -46,7 +46,10 @@ def register(server: RpcServer, manager: TaskManager) -> None:
         model_id = str(params.get("model_id") or "").strip()
         if model_id not in SUPPORTED:
             raise RpcError(
-                "INVALID_PARAMS", f"Unknown detector model: {model_id}", {"model_id": model_id}
+                "INVALID_PARAMS",
+                f"{model_id or '(empty)'} is not a detector model; use "
+                "model.download.start for inpaint and upscale models",
+                {"model_id": model_id},
             )
         force = bool(params.get("force"))
         task = manager.create("model_install")

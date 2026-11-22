@@ -13,6 +13,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +22,10 @@ import cv2
 import numpy as np
 
 from engine.pipeline.analysis import BBox, Detection
+from engine.pipeline.detect import weights
 from engine.pipeline.detect.base import DetectorError, WatermarkDetector
 from engine.pipeline.detect.worker_protocol import collect_frames, encode_job, parse_line
+from engine.pipeline.logging import logger
 from engine.platform.paths import temp_dir
 
 #: Florence-2 reports boxes, never scores. A constant keeps the field honest
@@ -42,12 +46,14 @@ class FlorenceDetector(WatermarkDetector):
         worker: str | Path | None = None,
         batch: int = 8,
         timeout: float = 900.0,
+        weights_check: Any = None,
     ) -> None:
         self._weights_dir = Path(weights_dir) if weights_dir else None
         self._python = str(python) if python else None
         self._worker = Path(worker) if worker else None
         self._batch = max(1, int(batch))
         self._timeout = float(timeout)
+        self._weights_check = weights_check or weights.missing
 
     # -- paths ---------------------------------------------------------
 
@@ -89,16 +95,21 @@ class FlorenceDetector(WatermarkDetector):
     def load(self) -> None:
         """Nothing to load here: the worker loads the model when it starts."""
 
+    def is_installed(self) -> bool:
+        """The runtime exists, even if the weights were wiped or half-downloaded."""
+        return Path(self.python_executable()).is_file()
+
     def is_available(self) -> bool:
-        if not Path(self.python_executable()).is_file():
+        if not self.is_installed():
             return False
-        return (self.weights_dir / "model.safetensors").is_file()
+        return not self._weights_check(self.weights_dir)
 
     def get_warning(self) -> str:
-        if not Path(self.python_executable()).is_file():
+        if not self.is_installed():
             return "detector runtime is not installed"
-        if not (self.weights_dir / "model.safetensors").is_file():
-            return "detector weights are missing"
+        absent = self._weights_check(self.weights_dir)
+        if absent:
+            return f"{len(absent)} detector weight file(s) missing; reinstall the detector"
         if not self.runtime_cuda():
             return "Florence-2 will run on the CPU (slow, a few seconds per frame)"
         return ""
@@ -126,7 +137,10 @@ class FlorenceDetector(WatermarkDetector):
         return env
 
     def detect_many(
-        self, frames: list[tuple[int, np.ndarray]]
+        self,
+        frames: list[tuple[int, np.ndarray]],
+        *,
+        cancel: object | None = None,
     ) -> dict[int, list[Detection]]:
         if not frames:
             return {}
@@ -134,9 +148,13 @@ class FlorenceDetector(WatermarkDetector):
         python = Path(self.python_executable())
         if not python.is_file():
             raise DetectorError(f"detector runtime is not installed: {python}")
-        weights = self.weights_dir
-        if not (weights / "model.safetensors").is_file():
-            raise DetectorError(f"detector weights are missing: {weights}")
+        weights_path = self.weights_dir
+        absent = self._weights_check(weights_path)
+        if absent:
+            raise DetectorError(
+                f"detector weights are incomplete ({len(absent)} file(s) missing): "
+                f"{weights_path}"
+            )
         worker = self.worker_script
         if not worker.is_file():
             raise DetectorError(f"detector worker is missing: {worker}")
@@ -159,49 +177,93 @@ class FlorenceDetector(WatermarkDetector):
 
             job_path = work / "job.json"
             job_path.write_text(
-                json.dumps(encode_job(weights, items, batch=self._batch), ensure_ascii=False),
+                json.dumps(encode_job(weights_path, items, batch=self._batch), ensure_ascii=False),
                 encoding="utf-8",
             )
-            try:
-                completed = subprocess.run(
-                    [str(python), str(worker), "--job", str(job_path)],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=self._timeout,
-                    check=False,
-                    env=self.worker_env(),
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise DetectorError(
-                    f"detector timed out after {self._timeout:.0f}s"
-                ) from exc
-            except OSError as exc:
-                raise DetectorError(f"cannot start the detector worker: {exc}") from exc
-
-            lines = (completed.stdout or "").splitlines()
+            lines = self._run_worker(
+                [str(python), str(worker), "--job", str(job_path)], cancel=cancel
+            )
             for line in lines:
                 payload = parse_line(line)
                 if payload.get("type") == "error":
                     raise DetectorError(str(payload.get("message") or "detector failed"))
 
-            if completed.returncode != 0:
-                tail = (completed.stderr or "").strip()[-400:]
-                raise DetectorError(
-                    f"detector worker exited {completed.returncode}: {tail}"
-                )
             if not any(parse_line(line).get("type") == "done" for line in lines):
                 raise DetectorError("detector worker ended without a done line")
 
             boxes: dict[int, list[BBox]] = collect_frames(lines, total=len(frames))
+            expected = {int(index) for index, _image in frames}
+            missing = sorted(expected - set(boxes))
+            if missing:
+                # A skipped frame must not become "this frame has no watermark":
+                # that is how a broken runtime reports a clean video.
+                raise DetectorError(
+                    f"detector worker skipped {len(missing)} frame(s): {missing[:5]}"
+                )
             return {
                 index: [
                     Detection(frame=index, rect=box, confidence=BOX_CONFIDENCE)
                     for box in boxes.get(index, [])
                 ]
-                for index, _image in frames
+                for index in expected
             }
         finally:
-            shutil.rmtree(work, ignore_errors=True)
+            try:
+                shutil.rmtree(work)
+            except OSError as exc:
+                logger.warning("cannot remove detector scratch %s: %s", work, exc)
+
+    def _run_worker(self, command: list[str], *, cancel: object | None) -> list[str]:
+        """Run the worker, staying answerable to cancellation while it runs."""
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=self.worker_env(),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except OSError as exc:
+            raise DetectorError(f"cannot start the detector worker: {exc}") from exc
+
+        lines: list[str] = []
+        errors: list[str] = []
+        readers = [
+            threading.Thread(
+                target=lambda stream=process.stdout: lines.extend(stream or []), daemon=True
+            ),
+            threading.Thread(
+                target=lambda stream=process.stderr: errors.append((stream.read() if stream else "")),
+                daemon=True,
+            ),
+        ]
+        for reader in readers:
+            reader.start()
+
+        deadline = time.monotonic() + self._timeout
+        reason = ""
+        while process.poll() is None:
+            if cancel is not None and getattr(cancel, "is_set", lambda: False)():
+                reason = "detector cancelled"
+                break
+            if time.monotonic() > deadline:
+                reason = f"detector timed out after {self._timeout:.0f}s"
+                break
+            time.sleep(0.15)
+        if reason:
+            process.kill()
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        for reader in readers:
+            reader.join(timeout=5)
+        if reason:
+            raise DetectorError(reason)
+        if process.returncode != 0:
+            tail = "".join(errors).strip()[-400:]
+            raise DetectorError(f"detector worker exited {process.returncode}: {tail}")
+        return [line for line in lines if line.strip()]

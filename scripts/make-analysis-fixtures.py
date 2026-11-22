@@ -34,16 +34,17 @@ STEP = 5
 BACKGROUND = "gradients=s=640x360:c0=0x203040:c1=0x806040:d=1"
 
 
-def _background_image(ffmpeg: str, out_dir: Path) -> Path:
+def _background_image(ffmpeg: str, out_dir: Path, width: int, height: int) -> Path:
     """One still frame, looped for both renders.
 
     A timed `gradients` source is animated: rendering it twice gives two different
     backgrounds and the diff then reports the whole frame as the watermark. One
     static image is the only way the diff means what it claims.
     """
-    target = out_dir / "background.png"
+    target = out_dir / f"background-{width}x{height}.png"
     if not target.is_file():
-        _run([ffmpeg, "-y", "-v", "error", "-f", "lavfi", "-i", BACKGROUND,
+        _run([ffmpeg, "-y", "-v", "error", "-f", "lavfi",
+              "-i", f"gradients=s={width}x{height}:c0=0x203040:c1=0x806040:d=1",
               "-frames:v", "1", str(target)])
     return target
 
@@ -111,6 +112,14 @@ CASES: dict[str, dict] = {
         "present": [],
         "expected": {"tracks": 0, "motion": "static", "intervals": 0},
     },
+    "fullhd_corner": {
+        # The only case wider than the 1280 analysis ceiling, so this is the one
+        # that actually exercises `rescale_detections` (1920/1280 = 1.5x).
+        "size": (1920, 1080),
+        "draw": _text("© StudioName 2026", size=44, x="w-tw-40", y="h-th-32"),
+        "present": [[0, FRAMES - 1]],
+        "expected": {"tracks": 1, "motion": "static", "intervals": 1},
+    },
 }
 
 
@@ -126,13 +135,17 @@ def _run(command: list[str]) -> None:
         )
 
 
-def _render(ffmpeg: str, target: Path, *, draw: str | None, background: Path) -> None:
+def _render(
+    ffmpeg: str, target: Path, *, draw: str | None, background: Path, size: tuple[int, int]
+) -> None:
     filters = draw or "null"
+    width, height = size
     _run(
         [
             ffmpeg, "-y", "-v", "error",
             "-loop", "1", "-i", str(background),
             "-vf", filters,
+            "-s", f"{width}x{height}",
             "-r", str(FPS),
             "-frames:v", str(FRAMES),
             "-pix_fmt", "yuv420p",
@@ -141,7 +154,10 @@ def _render(ffmpeg: str, target: Path, *, draw: str | None, background: Path) ->
     )
 
 
-def _render_multi_shot(ffmpeg: str, target: Path, shots: list[dict]) -> None:
+def _render_multi_shot(
+    ffmpeg: str, target: Path, shots: list[dict], size: tuple[int, int] = (WIDTH, HEIGHT)
+) -> None:
+    width, height = size
     scratch = target.parent / "shots"
     scratch.mkdir(parents=True, exist_ok=True)
     parts: list[Path] = []
@@ -156,6 +172,7 @@ def _render_multi_shot(ffmpeg: str, target: Path, shots: list[dict]) -> None:
             [
                 ffmpeg, "-y", "-v", "error",
                 "-f", "lavfi", "-i", filters,
+                "-s", f"{width}x{height}",
                 "-r", str(FPS), "-frames:v", str(count),
                 "-pix_fmt", "yuv420p", str(part),
             ]
@@ -198,16 +215,19 @@ def build_case(ffmpeg: str, name: str, spec: dict, out_dir: Path) -> dict:
     case_dir.mkdir(parents=True, exist_ok=True)
     marked = case_dir / "video.mp4"
     clean = case_dir / "clean.mp4"
+    size = tuple(spec.get("size", (WIDTH, HEIGHT)))
 
     if "shots" in spec:
-        _render_multi_shot(ffmpeg, marked, spec["shots"])
+        _render_multi_shot(ffmpeg, marked, spec["shots"], size)
         # The clean render must use the *same* backgrounds, otherwise the diff is
         # the whole frame rather than the watermark.
-        _render_multi_shot(ffmpeg, clean, [{**shot, "draw": None} for shot in spec["shots"]])
+        _render_multi_shot(
+            ffmpeg, clean, [{**shot, "draw": None} for shot in spec["shots"]], size
+        )
     else:
-        background = _background_image(ffmpeg, out_dir)
-        _render(ffmpeg, marked, draw=spec["draw"], background=background)
-        _render(ffmpeg, clean, draw=None, background=background)
+        background = _background_image(ffmpeg, out_dir, size[0], size[1])
+        _render(ffmpeg, marked, draw=spec["draw"], background=background, size=size)
+        _render(ffmpeg, clean, draw=None, background=background, size=size)
 
     rects: dict[str, dict] = {}
     if spec.get("draw") is not None or "shots" in spec:
@@ -218,7 +238,7 @@ def build_case(ffmpeg: str, name: str, spec: dict, out_dir: Path) -> dict:
 
     truth = {
         "case": name,
-        "video": {"width": WIDTH, "height": HEIGHT, "fps": FPS, "frames": FRAMES},
+        "video": {"width": size[0], "height": size[1], "fps": FPS, "frames": FRAMES},
         "sample_step": STEP,
         "present": spec["present"],
         "expected": spec["expected"],

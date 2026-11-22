@@ -12,8 +12,10 @@ engine import torch.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -28,6 +30,9 @@ DETECTOR_ID = "florence2"
 HOME_ENV = "ERASER_DETECTOR_HOME"
 STATE_FILE = "state.json"
 LOCK_FILE = "install.lock"
+#: A lock older than this is presumed abandoned even if its pid looks alive
+#: (pids get reused; a wedged install must not lock the feature forever).
+STALE_LOCK_SECONDS = 6 * 3600
 #: transformers 5.x breaks Florence-2's remote code (`forced_bos_token_id`).
 #: The other pins are the versions the spike proved.
 PINNED = ("transformers==4.46.3", "timm==1.0.31", "einops==0.8.1", "pillow>=10")
@@ -113,33 +118,88 @@ def _detect_cuda() -> bool:
     return shutil.which("nvidia-smi") is not None
 
 
+def _torch_cuda() -> bool:
+    """Ask torch inside the runtime whether CUDA actually works.
+
+    `nvidia-smi` on PATH means a driver exists, not that this torch build can use
+    it; reporting the two as the same thing is how a user ends up waiting on a
+    GPU that is silently running on the CPU.
+    """
+    try:
+        completed = _run(
+            [str(venv_python()), "-c", "import torch;print(1 if torch.cuda.is_available() else 0)"],
+            timeout=180,
+        )
+    except DetectorInstallError as exc:
+        logger.warning("cannot verify CUDA in the detector runtime: %s", exc)
+        return False
+    return completed.stdout.strip().endswith("1")
+
+
+def _versions() -> dict[str, str]:
+    """Record what was actually installed; the eval numbers only mean something
+    next to the versions that produced them."""
+    script = (
+        "import json,torch,transformers,timm;"
+        "print(json.dumps({'torch': torch.__version__,"
+        " 'transformers': transformers.__version__, 'timm': timm.__version__}))"
+    )
+    try:
+        completed = _run([str(venv_python()), "-c", script], timeout=180)
+        payload = json.loads(completed.stdout.strip().splitlines()[-1])
+        return {str(key): str(value) for key, value in payload.items()}
+    except (DetectorInstallError, ValueError, IndexError) as exc:
+        logger.warning("cannot record detector versions: %s", exc)
+        return {}
+
+
 def _run(
     command: list[str],
     *,
     cancel: object | None = None,
     timeout: float = 3600.0,
 ) -> subprocess.CompletedProcess[str]:
+    """Run a provisioning command, killing it promptly when cancelled.
+
+    pip and venv setup can take minutes; a cancel that only takes effect after
+    pip returns is not a cancel.
+    """
     if cancel is not None and getattr(cancel, "is_set", lambda: False)():
         raise DetectorInstallError("cancelled")
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=timeout,
-            check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-    except (OSError, subprocess.SubprocessError) as exc:
+    except OSError as exc:
         raise DetectorInstallError(f"cannot run {command[0]}: {exc}") from exc
-    if completed.returncode != 0:
-        tail = (completed.stderr or completed.stdout or "").strip()[-500:]
+
+    deadline = time.monotonic() + timeout
+    reason = ""
+    while process.poll() is None:
+        if cancel is not None and getattr(cancel, "is_set", lambda: False)():
+            reason = "cancelled"
+            break
+        if time.monotonic() > deadline:
+            reason = f"timed out after {timeout:.0f}s"
+            break
+        time.sleep(0.2)
+    if reason:
+        process.kill()
+    stdout, stderr = process.communicate()
+    if reason:
+        raise DetectorInstallError(f"{Path(command[0]).name} {reason}")
+    if process.returncode != 0:
+        tail = (stderr or stdout or "").strip()[-500:]
         raise DetectorInstallError(
-            f"{Path(command[0]).name} exited {completed.returncode}: {tail}"
+            f"{Path(command[0]).name} exited {process.returncode}: {tail}"
         )
-    return completed
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def _ensure_venv(*, cancel: object | None = None, progress: ProgressCallback | None = None) -> None:
@@ -203,14 +263,17 @@ class InstallLock:
 
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             STILL_ACTIVE = 259
-            kernel32 = ctypes.windll.kernel32
+            ERROR_ACCESS_DENIED = 5
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
             handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not handle:
-                return False
+                # Access denied means the process exists and is not ours to open:
+                # treating that as "dead" would let a second install trample it.
+                return ctypes.get_last_error() == ERROR_ACCESS_DENIED
             try:
                 code = ctypes.c_ulong()
                 if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-                    return False
+                    return True
                 return code.value == STILL_ACTIVE
             finally:
                 kernel32.CloseHandle(handle)
@@ -224,11 +287,20 @@ class InstallLock:
             return False
         return True
 
-    def _owner(self) -> int:
+    def _owner(self) -> tuple[int, float]:
+        """Return (pid, started_at). Older lock files held a bare pid."""
         try:
-            return int(self._path.read_text(encoding="utf-8").strip() or 0)
-        except (OSError, ValueError):
-            return 0
+            raw = self._path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return 0, 0.0
+        try:
+            payload = json.loads(raw)
+            return int(payload.get("pid", 0)), float(payload.get("started_at", 0.0))
+        except (ValueError, TypeError, AttributeError):
+            try:
+                return int(raw), 0.0
+            except ValueError:
+                return 0, 0.0
 
     def __enter__(self) -> "InstallLock":
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -236,15 +308,22 @@ class InstallLock:
             try:
                 handle = os.open(self._path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             except FileExistsError:
-                pid = self._owner()
-                if self._alive(pid):
+                pid, started = self._owner()
+                stale = started > 0 and (time.time() - started) > STALE_LOCK_SECONDS
+                if pid and not stale and self._alive(pid):
                     raise DetectorInstallError(
-                        f"another detector install is running (pid {pid})"
+                        f"another detector install is running (pid {pid}); "
+                        f"if it is not, delete {self._path}"
                     )
                 self._path.unlink(missing_ok=True)
                 continue
+            payload = {
+                "pid": os.getpid(),
+                "started_at": time.time(),
+                "host": socket.gethostname(),
+            }
             with os.fdopen(handle, "w", encoding="utf-8") as sink:
-                sink.write(str(os.getpid()))
+                sink.write(json.dumps(payload))
             self._held = True
             return self
         raise DetectorInstallError("cannot take the install lock")
@@ -261,21 +340,44 @@ def install(
     """Provision the runtime and the weights; resumable and idempotent."""
     with InstallLock():
         write_state({"phase": "installing"})
-        cuda = _detect_cuda()
+
+        def report(share: float, message: str) -> None:
+            if progress is not None:
+                progress(max(0.0, min(1.0, share)), message)
+
         try:
-            _ensure_venv(cancel=cancel, progress=progress)
-            _install_dependencies(cancel=cancel, progress=progress)
-            weights.download_all(weights_dir(), progress=progress, cancel=cancel)
+            # Dependencies and weights share one progress bar: reporting 1.0 when
+            # pip finishes leaves the bar pinned at 100% through a 444 MB
+            # download. Task progress is monotonic, so this cannot be undone later.
+            _ensure_venv(
+                cancel=cancel, progress=lambda share, message: report(0.05 * share, message)
+            )
+            _install_dependencies(
+                cancel=cancel,
+                progress=lambda share, message: report(0.05 + 0.55 * share, message),
+            )
+            weights.download_all(
+                weights_dir(),
+                progress=lambda share, message: report(0.6 + 0.4 * share, message),
+                cancel=cancel,
+            )
+            report(0.99, "verifying the detector runtime")
             payload = {
                 "phase": "ready",
                 "python": str(worker_python()),
-                "cuda": cuda,
+                "cuda": _torch_cuda(),
+                "versions": _versions(),
             }
             write_state(payload)
-            logger.info("detector runtime ready (cuda=%s)", cuda)
+            logger.info("detector runtime ready (cuda=%s)", payload["cuda"])
             return read_state()
         except Exception as exc:  # noqa: BLE001 - the state file is the report
-            write_state({"phase": "failed", "error": str(exc)})
+            # A cancel is not a failure: the UI would keep offering "retry" for
+            # something the user deliberately stopped.
+            cancelled = "cancel" in str(exc).lower()
+            write_state(
+                {"phase": "missing" if cancelled else "failed", "error": str(exc)}
+            )
             if isinstance(exc, DetectorInstallError):
                 raise
             raise DetectorInstallError(str(exc)) from exc

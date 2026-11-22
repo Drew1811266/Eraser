@@ -112,9 +112,11 @@ class CapabilityTests(_IsolatedHome):
         self.assertTrue(entry["blocked_reason"], "the UI needs to know why")
 
     def test_an_installed_florence_is_available(self) -> None:
-        with patch.object(FlorenceDetector, "is_available", return_value=True), patch.object(
-            FlorenceDetector, "get_warning", return_value=""
-        ), patch.dict(os.environ, {"ERASER_DETECT_STUB": ""}):
+        with patch.object(FlorenceDetector, "is_installed", return_value=True), patch.object(
+            FlorenceDetector, "is_available", return_value=True
+        ), patch.object(FlorenceDetector, "get_warning", return_value=""), patch.dict(
+            os.environ, {"ERASER_DETECT_STUB": ""}
+        ):
             result = _Harness().call("analyze.capabilities")["result"]
         entry = next(item for item in result["detectors"] if item["model_id"] == "florence2")
         self.assertTrue(entry["installed"])

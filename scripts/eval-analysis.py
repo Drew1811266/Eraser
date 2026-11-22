@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from engine.pipeline.analysis import BBox, Detection, WatermarkTrack, iou  # noqa: E402
-from engine.pipeline.analyze_job import run_analysis  # noqa: E402
+from engine.pipeline.analyze_job import ANALYSIS_MAX_WIDTH, run_analysis  # noqa: E402
 from engine.pipeline.detect import ScriptedDetector, catalog  # noqa: E402
 
 
@@ -106,6 +106,7 @@ def _evaluate(truth: dict, analysis) -> dict:
         "intervals": len(matching.intervals) if matching else 0,
         "intervals_expected": int(expected.get("intervals", 0)),
         "hit": round(hits / probes, 3) if probes else 1.0,
+        "probes": probes,
         "coverage": round(coverage, 3),
         "false": round(false_frames / max(1, len(predicted_present)), 3),
         "seconds": round(analysis.elapsed_ms / 1000.0, 2),
@@ -126,10 +127,27 @@ def _verdict(row: dict) -> str:
 
 
 def _truth_detector(truth: dict) -> ScriptedDetector:
+    """Replay the ground truth the way a real detector would see it.
+
+    A detector reports boxes in the frame it was given, and the engine downscales
+    wide video before detection. Handing the pipeline source-pixel boxes would
+    make the replay wrong by exactly the scale factor — and only on wide clips,
+    which is the case most worth checking.
+    """
+    width = int((truth.get("video") or {}).get("width") or 0)
+    scale = min(1.0, ANALYSIS_MAX_WIDTH / width) if width else 1.0
     detections: dict[int, list[Detection]] = {}
     for frame_key, rect in (truth.get("rects") or {}).items():
         frame = int(frame_key)
-        detections[frame] = [Detection(frame, BBox.from_dict(rect), 1.0)]
+        box = BBox.from_dict(rect)
+        if scale != 1.0:
+            box = BBox(
+                int(round(box.x * scale)),
+                int(round(box.y * scale)),
+                max(1, int(round(box.width * scale))),
+                max(1, int(round(box.height * scale))),
+            )
+        detections[frame] = [Detection(frame, box, 1.0)]
     return ScriptedDetector(detections)
 
 
@@ -164,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
 
     rows: list[dict] = []
     print(f"{'case':<14} {'tracks':>6} {'gt':>3} {'motion':>10} {'iv':>3} {'gt':>3} "
-          f"{'hit':>6} {'cover':>6} {'false':>6} {'sec':>6}  verdict")
+          f"{'probes':>6} {'hit':>6} {'cover':>6} {'false':>6} {'sec':>6}  verdict")
     for truth_path in truths:
         truth = json.loads(truth_path.read_text(encoding="utf-8"))
         video = truth_path.parent / "video.mp4"
@@ -184,11 +202,14 @@ def main(argv: list[str] | None = None) -> int:
         row = _evaluate(truth, analysis)
         row["verdict"] = _verdict(row)
         rows.append(row)
+        # With no probes the hit rate is vacuous, not perfect; printing 1.00 for
+        # the clean control would look like a verified detection.
+        hit_text = f"{row['hit']:.2f}" if row["probes"] else "n/a"
         print(
             f"{row['case']:<14} {row['tracks']:>6} {row['tracks_expected']:>3} "
             f"{row['motion']:>10} {row['intervals']:>3} {row['intervals_expected']:>3} "
-            f"{row['hit']:>6.2f} {row['coverage']:>6.2f} {row['false']:>6.2f} "
-            f"{row['seconds']:>6.2f}  {row['verdict']}"
+            f"{row['probes']:>6} {hit_text:>6} {row['coverage']:>6.2f} "
+            f"{row['false']:>6.2f} {row['seconds']:>6.2f}  {row['verdict']}"
         )
 
     if args.json:
