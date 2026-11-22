@@ -278,6 +278,7 @@ const zh: MessageDict = {
   'status.running': '处理中',
   'status.done': '完成',
   'status.failed': '失败',
+  'analyze.header': '水印分析',
   'analyze.title': '分析结果',
   'analyze.watermarks': '水印',
   'analyze.shots': '镜头',
@@ -303,6 +304,14 @@ const zh: MessageDict = {
   'timeline.startLater': '起点后移一帧',
   'timeline.endEarlier': '终点前移一帧',
   'timeline.endLater': '终点后移一帧',
+  'analyze.run': '开始分析',
+  'analyze.rerun': '重新分析',
+  'analyze.split': '拆分',
+  'analyze.merge': '合并',
+  'analyze.delete': '删除',
+  'analyze.addManual': '添加水印',
+  'analyze.start': '开始处理',
+  'analyze.compiling': '正在编译…',
 };
 
 // 英文词典：key 与中文词典保持一一对应。
@@ -579,6 +588,7 @@ const en: MessageDict = {
   'status.running': 'Running',
   'status.done': 'Done',
   'status.failed': 'Failed',
+  'analyze.header': 'Watermark analysis',
   'analyze.title': 'Analysis',
   'analyze.watermarks': 'Watermarks',
   'analyze.shots': 'Shots',
@@ -604,6 +614,14 @@ const en: MessageDict = {
   'timeline.startLater': 'Start forward one frame',
   'timeline.endEarlier': 'End back one frame',
   'timeline.endLater': 'End forward one frame',
+  'analyze.run': 'Analyze',
+  'analyze.rerun': 'Analyze again',
+  'analyze.split': 'Split',
+  'analyze.merge': 'Merge',
+  'analyze.delete': 'Delete',
+  'analyze.addManual': 'Add watermark',
+  'analyze.start': 'Start processing',
+  'analyze.compiling': 'Compiling…',
 };
 
 // 对外导出语言映射表，供 useI18n 按语言读取。
