@@ -78,6 +78,25 @@ class ScriptedDetectorTests(unittest.TestCase):
             self.assertEqual(available_detectors({"ERASER_DETECT_STUB": str(path)}), [])
 
 
+class BatchTests(unittest.TestCase):
+    def test_default_batch_calls_detect_per_frame(self) -> None:
+        class Counter(ScriptedDetector):
+            calls: list[int] = []
+
+            def detect(self, frame, frame_index):  # noqa: ANN001, ANN201
+                Counter.calls.append(frame_index)
+                return super().detect(frame, frame_index)
+
+        detector = Counter({0: [Detection(0, BBox(1, 1, 2, 2), 1.0)]})
+        result = detector.detect_many([(0, None), (5, None)])
+        self.assertEqual(Counter.calls, [0, 5])
+        self.assertEqual(sorted(result), [0, 5])
+        self.assertEqual(result[0][0].rect, BBox(1, 1, 2, 2))
+
+    def test_batch_of_no_frames_is_empty(self) -> None:
+        self.assertEqual(ScriptedDetector({}).detect_many([]), {})
+
+
 class RegistryTests(unittest.TestCase):
     def test_no_detector_by_default(self) -> None:
         self.assertEqual(available_detectors(environ={}), [])

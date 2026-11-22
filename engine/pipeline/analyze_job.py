@@ -121,19 +121,21 @@ def run_analysis(
         raise AnalysisError(f"cannot sample frames: {exc}") from exc
 
     detector.load()
+    raw = detector.detect_many(frames)
     detections: dict[int, list[Detection]] = {}
     total = max(1, len(frames))
     for position, (frame_index, image) in enumerate(frames, start=1):
         if cancel is not None and cancel.is_set():
             raise AnalysisError("cancelled")
-        raw = detector.detect(image, frame_index)
         # The detector saw the (possibly downscaled) sample, so its boxes are in
         # that image's space until they are mapped back to source pixels.
         height, width = image.shape[:2]
         scale_x = info.width / width if width else 1.0
         scale_y = info.height / height if height else 1.0
-        detections[frame_index] = rescale_detections(raw, scale_x, scale_y)
-        if position == total or position % 5 == 0:
+        detections[frame_index] = rescale_detections(
+            raw.get(frame_index, []), scale_x, scale_y
+        )
+        if position == total or position % 20 == 0:
             emit(
                 phase="detect",
                 progress=0.2 + 0.6 * (position / total),
