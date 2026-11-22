@@ -40,6 +40,7 @@ interface ProcessViewProps {
   onStartProcessing: () => void;
   onStopProcessing: () => void;
   onGoAnnotate: () => void;
+  onAnalyzeWatermark: () => void;
 }
 
 export function ProcessView({
@@ -64,6 +65,7 @@ export function ProcessView({
   onStartProcessing,
   onStopProcessing,
   onGoAnnotate,
+  onAnalyzeWatermark,
 }: ProcessViewProps) {
   const { t } = useI18n();
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
@@ -361,6 +363,14 @@ export function ProcessView({
                   onClick={onStartProcessing}
                 >
                   {t('common.start')}
+                </MdButton>
+                <MdButton
+                  variant="outlined"
+                  icon="auto_awesome"
+                  disabled={!videoPath || process.isProcessing}
+                  onClick={onAnalyzeWatermark}
+                >
+                  {t('analyze.entry')}
                 </MdButton>
                 <MdButton
                   variant="outlined"

@@ -1,5 +1,5 @@
 // 主页面标签：处理、打标、结果、AI 放大结果。
-export type MainView = 'process' | 'annotate' | 'result' | 'upscale';
+export type MainView = 'process' | 'analyze' | 'annotate' | 'result' | 'upscale';
 
 // 语言枚举（当前仅中英文）。
 export type Language = 'zh' | 'en';

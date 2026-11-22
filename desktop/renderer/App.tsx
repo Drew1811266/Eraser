@@ -17,7 +17,8 @@ import {
 } from './services/desktop';
 import { useWorkspaceStore } from './store/workspace';
 import { DEFAULT_SETTINGS, useAppStore } from './store/app';
-import type { VideoMeta } from './types/annotation';
+import type { AnnotationSegment, VideoMeta } from './types/annotation';
+import type { Segment } from '../shared/ipc';
 import type {
   AppSettings,
   MainView,
@@ -28,6 +29,7 @@ import type {
 } from './types/app';
 import { useI18n } from './i18n/useI18n';
 import { ProcessView } from './views/ProcessView';
+import { AnalysisView } from './views/AnalysisView';
 import { ResultView } from './views/ResultView';
 import { ManualView } from './views/ManualView';
 import { SettingsView } from './views/SettingsView';
@@ -366,6 +368,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
   });
+}
+
+/**
+ * 编译出来的 Segment 与打标工作区的 AnnotationSegment 只差展示字段。
+ * 默认外扩/羽化属于打标工作区的约定，所以映射放在应用层而不是视图里。
+ */
+export function segmentsFromCompiled(compiled: Segment[]): AnnotationSegment[] {
+  const now = new Date().toISOString();
+  return compiled.map((segment, index) => ({
+    id: segment.id ?? `seg_analysis_${Date.now()}_${index}`,
+    start_frame: segment.start_frame,
+    end_frame: segment.end_frame,
+    rect: segment.rect,
+    expand_px: segment.expand_px ?? 5,
+    feather_px: segment.feather_px ?? 3,
+    enabled: segment.enabled !== false,
+    created_at: now,
+    updated_at: now,
+  }));
 }
 
 export default function App() {
@@ -1134,10 +1155,12 @@ export default function App() {
     }
   }, [refreshUpscaleModelDownloadStatus, t]);
 
-  const startProcessing = useCallback(async () => {
+  const startProcessing = useCallback(async (override?: AnnotationSegment[]) => {
     // 处理按钮主流程：先保存标注，再调用后端处理，再生成结果页数据。
+    // 分析视图会把编译好的段落传进来；按钮点击传进来的是事件对象，要忽略。
+    const source = Array.isArray(override) ? override : segments;
     if (!videoPath || process.isProcessing) return;
-    const enabledSegments = segments.filter((seg) => seg.enabled !== false);
+    const enabledSegments = source.filter((seg) => seg.enabled !== false);
     if (enabledSegments.length <= 0) {
       resetProcess();
       notify.warning(t('toast.noSegments'));
@@ -1253,6 +1276,16 @@ export default function App() {
     videoMeta,
     videoPath,
   ]);
+
+  const startFromAnalysis = useCallback(
+    async (compiled: Segment[]) => {
+      // 分析结果先落进打标工作区：标注页和处理看到同一份数据，用户回去还能改。
+      const mapped = segmentsFromCompiled(compiled);
+      replaceSegments(mapped);
+      await startProcessing(mapped);
+    },
+    [replaceSegments, startProcessing],
+  );
 
   const stopProcessing = useCallback(async () => {
     // 主动停止后端处理，并把前端状态回到 idle。
@@ -1448,6 +1481,17 @@ export default function App() {
   }, []);
 
   const renderView = () => {
+    if (view === 'analyze') {
+      return (
+        <AnalysisView
+          videoPath={videoPath}
+          videoMeta={videoMeta}
+          frameImageUrl={frameImageUrl}
+          onStart={startFromAnalysis}
+        />
+      );
+    }
+
     // 按当前标签渲染对应主内容。
     if (view === 'annotate') {
       return (
@@ -1529,6 +1573,7 @@ export default function App() {
         onStartProcessing={startProcessing}
         onStopProcessing={stopProcessing}
         onGoAnnotate={() => setView('annotate')}
+        onAnalyzeWatermark={() => setView('analyze')}
       />
     );
   };
