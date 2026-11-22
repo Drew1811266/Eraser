@@ -103,7 +103,7 @@ describe('analysis', () => {
     fireEvent.click(await screen.findByText('开始分析'));
     await waitFor(() => expect(api.analyzeStart).toHaveBeenCalledWith({ input_path: 'C:/v.mp4' }));
     expect(await screen.findByText('分析结果')).toBeTruthy();
-    expect(screen.getByText('wm-1')).toBeTruthy();
+    expect(screen.getByText('水印 1')).toBeTruthy();
   });
 
   it('does not start a second analysis on a double click', async () => {
@@ -198,5 +198,50 @@ describe('re-analysing', () => {
     fireEvent.click(screen.getByText('重新分析'));
     await waitFor(() => expect(api.analyzeStart).toHaveBeenCalledTimes(2));
     vi.unstubAllGlobals();
+  });
+});
+
+describe('stale work', () => {
+  it('drops a result that arrives after the view is gone', async () => {
+    let release: ((value: unknown) => void) | undefined;
+    const api = bridge({
+      status: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      ),
+    });
+    const { unmount } = render(
+      <AnalysisView
+        videoPath="C:/v.mp4"
+        videoMeta={{ width: 640, height: 360, frame_count: 100, fps: 10 }}
+        frameImageUrl="blob:frame"
+        onStart={vi.fn(async () => {})}
+      />,
+    );
+    fireEvent.click(await screen.findByText('开始分析'));
+    await waitFor(() => expect(api.status).toHaveBeenCalled());
+
+    unmount();
+    release?.({ task_id: 'analyze-1', state: 'success', result: analysisPayload });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // 卸载之后的结果不能悄悄覆盖 store（用户可能已经切到别的视频）。
+    expect(useAnalysisStore.getState().analysis).toBeNull();
+  });
+
+  it('clears the dirty flag once the edit is compiled', async () => {
+    const api = bridge();
+    renderView(api);
+    fireEvent.click(await screen.findByText('开始分析'));
+    await screen.findByText('分析结果');
+
+    act(() => useAnalysisStore.getState().nudge('wm-1', 0, 'end', -1));
+    expect(useAnalysisStore.getState().dirty).toBe(true);
+
+    fireEvent.click(screen.getByText('开始处理'));
+    await waitFor(() => expect(api.compileAnnotations).toHaveBeenCalled());
+    await waitFor(() => expect(useAnalysisStore.getState().dirty).toBe(false));
   });
 });

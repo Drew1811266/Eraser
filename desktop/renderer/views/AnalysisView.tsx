@@ -1,6 +1,6 @@
 // 分析视图：查能力 → 装检测器 → 分析 → 时间线上确认 → 编译交给处理。
 // 所有引擎调用都经过 window.eraser（主进程桥），渲染进程不直接碰引擎。
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../i18n/useI18n';
 import { Timeline } from '../components/Timeline';
 import { AnalysisReport } from './AnalysisReport';
@@ -16,6 +16,8 @@ import type {
 } from '../../shared/ipc';
 
 const POLL_MS = 250;
+/** 本轮任务已被新的操作取代（或组件已卸载）：结果必须丢弃，不能回写。 */
+class StaleRun extends Error {}
 const TERMINAL = new Set(['success', 'failed', 'cancelled']);
 
 function desktop(): EraserBridge {
@@ -29,11 +31,15 @@ function desktop(): EraserBridge {
 async function waitFor(
   taskId: string,
   onTick?: (status: TaskStatus) => void,
+  alive?: () => boolean,
   timeoutMs = 15 * 60_000,
 ): Promise<TaskStatus> {
   const api = desktop();
   const deadline = Date.now() + timeoutMs;
   for (;;) {
+    if (alive && !alive()) {
+      throw new StaleRun();
+    }
     const status = await api.status(taskId);
     onTick?.(status);
     if (TERMINAL.has(status.state)) {
@@ -60,6 +66,17 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
   const [detectors, setDetectors] = useState<DetectorEntry[]>([]);
   const [compiling, setCompiling] = useState(false);
   const install = state.install;
+  // 卸载后不再回写；新一代任务开始后，旧一轮的结果直接丢弃。
+  const mountedRef = useRef(true);
+  const analyzeRun = useRef(0);
+  const installRun = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const detector = useMemo(
     () => detectors.find((entry) => entry.available) ?? detectors[0] ?? null,
@@ -92,13 +109,23 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
     if (useAnalysisStore.getState().phase === 'running') {
       return;
     }
-    useAnalysisStore.getState().begin('pending');
+    const run = ++analyzeRun.current;
+    const alive = (): boolean => mountedRef.current && analyzeRun.current === run;
+    useAnalysisStore.getState().begin('pending', videoPath);
     try {
       const { task_id } = await desktop().analyzeStart({ input_path: videoPath });
-      useAnalysisStore.getState().begin(task_id);
-      const status = await waitFor(task_id, (tick) =>
-        useAnalysisStore.getState().setProgress(tick.progress, tick.message),
+      if (!alive()) {
+        return;
+      }
+      useAnalysisStore.getState().begin(task_id, videoPath);
+      const status = await waitFor(
+        task_id,
+        (tick) => useAnalysisStore.getState().setProgress(tick.progress, tick.message),
+        alive,
       );
+      if (!alive()) {
+        return;
+      }
       if (status.state === 'success') {
         const payload = status.result as unknown as Analysis;
         if (!payload || !payload.video) {
@@ -109,13 +136,18 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
         useAnalysisStore.getState().fail(status.error || status.state);
       }
     } catch (error) {
+      if (error instanceof StaleRun) {
+        return;
+      }
       useAnalysisStore.getState().fail(analysisError(error, t));
     }
-  }, [videoPath, state]);
+  }, [videoPath, t]);
 
   const installDetector = useCallback(async (modelId: string) => {
     useAnalysisStore.getState().setInstall({ phase: 'running', progress: 0, message: '', error: '' });
     try {
+      const run = ++installRun.current;
+      const alive = (): boolean => mountedRef.current && installRun.current === run;
       const { task_id } = await desktop().installDetector({ model_id: modelId });
       const status = await waitFor(task_id, (tick) =>
         useAnalysisStore.getState().setInstall({
@@ -124,7 +156,10 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
           message: tick.message,
           error: '',
         }),
-      );
+      alive);
+      if (!alive()) {
+        return;
+      }
       if (status.state !== 'success') {
         useAnalysisStore.getState().setInstall({
           phase: 'failed',
@@ -140,7 +175,7 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
     } catch (error) {
       useAnalysisStore.getState().setInstall({ phase: 'failed', progress: 0, message: '', error: analysisError(error, t) });
     }
-  }, []);
+  }, [t]);
 
   const startProcess = useCallback(async () => {
     const snapshot = useAnalysisStore.getState();
@@ -164,6 +199,7 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
         },
       });
       await onStart(segments);
+      useAnalysisStore.getState().markCompiled();
     } catch (error) {
       useAnalysisStore.getState().fail(analysisError(error, t));
     } finally {
@@ -218,6 +254,7 @@ export function AnalysisView({ videoPath, videoMeta, frameImageUrl, onStart }: A
 
       <AnalysisReport
         analysis={analysis}
+        tracks={state.tracks}
         detector={detector}
         install={install}
         onInstall={(modelId) => void installDetector(modelId)}

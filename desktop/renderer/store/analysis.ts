@@ -49,6 +49,7 @@ interface AnalysisState {
   fail: (error: string) => void;
   reset: () => void;
   setInstall: (patch: Partial<InstallState>) => void;
+  markCompiled: () => void;
   select: (selection: Selection | null) => void;
   setFrame: (frame: number) => void;
   nudge: (trackId: string, intervalIndex: number, edge: Edge, delta: number) => void;
@@ -166,6 +167,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     fail: (error) => set({ phase: 'failed', error, message: '' }),
     reset: () => set({ ...INITIAL }),
     setInstall: (patch) => set({ install: { ...get().install, ...patch } }),
+    markCompiled: () => set({ dirty: false }),
     select: (selected) => set({ selected }),
     setFrame: (frame) => {
       const total = frameCountOf(get().analysis);
