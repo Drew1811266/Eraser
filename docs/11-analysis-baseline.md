@@ -48,7 +48,7 @@ export ERASER_TEMP_DIR="$(cygpath -w "$PWD/.cache/tmp")"
 
 > 真实检测器的召回率、误报数、track 准确率，由 M2 的
 > `scripts/eval-analysis.py` 在 7 组合成素材上度量，结果记入
-> `docs/12-quality-baseline.md`。
+> `docs/13-quality-baseline.md`。
 
 ## 4. 独立审查后的修复（M1 收口）
 
