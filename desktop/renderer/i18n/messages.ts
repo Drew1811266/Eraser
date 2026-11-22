@@ -297,6 +297,12 @@ const zh: MessageDict = {
   'analyze.retry': '重试',
   'analyze.running': '正在分析…',
   'analyze.failed': '分析失败',
+  'timeline.playhead': '播放头',
+  'timeline.watermark': '水印',
+  'timeline.startEarlier': '起点前移一帧',
+  'timeline.startLater': '起点后移一帧',
+  'timeline.endEarlier': '终点前移一帧',
+  'timeline.endLater': '终点后移一帧',
 };
 
 // 英文词典：key 与中文词典保持一一对应。
@@ -592,6 +598,12 @@ const en: MessageDict = {
   'analyze.retry': 'Retry',
   'analyze.running': 'Analyzing…',
   'analyze.failed': 'Analysis failed',
+  'timeline.playhead': 'Playhead',
+  'timeline.watermark': 'Watermark',
+  'timeline.startEarlier': 'Start back one frame',
+  'timeline.startLater': 'Start forward one frame',
+  'timeline.endEarlier': 'End back one frame',
+  'timeline.endLater': 'End forward one frame',
 };
 
 // 对外导出语言映射表，供 useI18n 按语言读取。
