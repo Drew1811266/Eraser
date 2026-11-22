@@ -2565,9 +2565,12 @@ p,
 }
 
 .timeline__nudges {
+  /* 浮在选中块右侧，而不是压在播放头滑块上。 */
   position: absolute;
-  top: -30px;
-  left: 0;
+  top: 50%;
+  left: 100%;
+  margin-left: 6px;
+  transform: translateY(-50%);
   display: flex;
   gap: 2px;
 }

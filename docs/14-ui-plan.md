@@ -258,3 +258,26 @@ interface TimelineProps {
    并截图到 `.cache/e2e-ui/shots/`。
 
 在能启动窗口的会话里：`node scripts/e2e-ui.mjs`。
+
+### 补充：真实 Chromium 中的视觉与交互验证
+
+Electron 起不来之后，改用 Vite 开发服务器 + 真实 Chromium 验证组件层：
+`desktop/renderer/dev/analysis-preview.html` 只挂载分析视图，用假桥喂一份固定结果。
+
+实测（Chromium 156 / 1219px 宽）：
+
+| 检查 | 结果 |
+|---|---|
+| 统计标签 | 水印 / 镜头 / **区间**（此前显示原始 key `analyze.intervals`） |
+| 区间块几何 | 48% 与 47% 宽度、24px 高、泳道 30px —— 比例正确 |
+| 舞台画面 | 1219×686（16:9），水印框与画面上的文字对齐 |
+| 拆分 / 合并 / 添加水印 | 2 → 3 → 2 → 3 个块，手动块落在当前帧（2.0s） |
+| 拖右边界 | 597 → 634px，被相邻块挡在 51 帧（**没有**被合并） |
+| 微调按钮位置 | 移到块右侧，不再压住播放头滑块 |
+
+据此补了两处修复和一条守护测试：
+- 补上缺失的 `analyze.intervals`（中英各一条）；
+- `.timeline__nudges` 改为浮在选中块右侧；
+- `desktop/electron/i18n-coverage.test.ts`：扫描渲染层所有 `t('...')`，中英词典缺一即失败。
+
+仍未验证（需要真实 Electron）：IPC、真实抽帧、真实引擎分析与安装流程。
