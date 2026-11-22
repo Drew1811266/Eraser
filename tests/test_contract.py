@@ -92,9 +92,16 @@ class ContractShapeTests(unittest.TestCase):
                 "analyze.capabilities",
                 "analyze.start",
                 "annotation.compile",
+                # Provisioning the detector runtime on demand.
+                "model.install",
+                "model.installStatus",
             },
         )
-        self.assertLess(set(IMPLEMENTED_METHODS), set(METHODS), "some methods must remain stubbed")
+        # Every declared method now has a handler, so "some must remain stubbed"
+        # no longer holds. The invariant that replaces it is enforced at startup:
+        # `stubs.register_stubs` raises if a method is marked implemented without
+        # a registered handler.
+        self.assertEqual(set(IMPLEMENTED_METHODS), set(METHODS))
 
 
 class ErrorCodeTests(unittest.TestCase):

@@ -232,10 +232,10 @@ async function main() {
   section('4. structured errors');
   try {
     await client.request('model.install', { model_id: 'lama_roi' });
-    check('unimplemented method rejects', false, 'it resolved instead');
+    check('an unknown detector model is refused', false, 'it resolved instead');
   } catch (error) {
-    check('unimplemented method rejects', error instanceof EngineError);
-    check('carries NOT_IMPLEMENTED', error.code === 'NOT_IMPLEMENTED', error.code);
+    check('an unknown detector model is refused', error instanceof EngineError);
+    check('carries INVALID_PARAMS', error.code === 'INVALID_PARAMS', error.code);
     check('is not retryable', error.retryable === false);
   }
 

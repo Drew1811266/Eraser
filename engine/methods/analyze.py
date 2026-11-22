@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from engine.pipeline.detect import available_detectors
+from engine.pipeline.detect import available_detectors, catalog
 from engine.pipeline.logging import logger
 from engine.rpc.errors import RpcError
 from engine.rpc.server import RpcServer
@@ -19,20 +19,25 @@ from engine.tasks import TaskManager, TaskRecord
 
 
 def _detector_entries() -> list[dict[str, Any]]:
+    """Every known detector, including ones that need installing.
+
+    The confirmation screen needs to offer the install, so "Florence exists but
+    is not installed" has to be a row with a reason, not an omission.
+    """
     entries: list[dict[str, Any]] = []
-    for detector in available_detectors():
+    for detector in catalog():
         available = False
         reason = ""
         try:
             available = bool(detector.is_available())
-            reason = detector.get_warning() if not available else ""
+            reason = "" if available else (detector.get_warning() or "not installed")
         except Exception as exc:  # noqa: BLE001 - a probe must not break the list
             reason = f"{type(exc).__name__}: {exc}"
         entries.append(
             {
                 "model_id": detector.model_id,
                 "display_name": detector.display_name,
-                "installed": True,
+                "installed": available,
                 "available": available,
                 "blocked_reason": reason,
             }

@@ -9,6 +9,7 @@ from engine.methods import (
     assets,
     media,
     model_download,
+    model_install,
     preview,
     process,
     stubs,
@@ -33,6 +34,7 @@ def register_all(server: RpcServer) -> list[str]:
     process.register(server, manager)
     upscale.register(server, manager)
     analyze.register(server, manager)
+    model_install.register(server, manager)
     assets.register(server)
     model_download.register(server)
 

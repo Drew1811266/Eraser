@@ -1124,7 +1124,7 @@ _CONTRACT_JSON = r"""
     {
       "name": "model.install",
       "summary": "Download and verify a model. Returns a task id immediately.",
-      "implemented": false,
+      "implemented": true,
       "params": {
         "type": "object",
         "additionalProperties": false,
@@ -1250,7 +1250,7 @@ _CONTRACT_JSON = r"""
     {
       "name": "model.installStatus",
       "summary": "Snapshot a model-install task.",
-      "implemented": false,
+      "implemented": true,
       "params": {
         "type": "object",
         "additionalProperties": false,

@@ -68,10 +68,16 @@ class ErrorTests(unittest.TestCase):
         frames = run_frames([request(1, "media.probe", {})])
         self.assert_error(frames[0], "INVALID_PARAMS")
 
-    def test_declared_but_unimplemented_method_is_structured(self) -> None:
-        frames = run_frames([request(1, "model.install", {"model_id": "lama_roi"})])
-        self.assert_error(frames[0], "NOT_IMPLEMENTED")
-        self.assertFalse(frames[0]["error"]["data"]["retryable"])
+    def test_a_method_marked_implemented_needs_a_handler(self) -> None:
+        # Every declared method now has a handler, so the NOT_IMPLEMENTED reply is
+        # no longer reachable through the contract. What still guards the surface
+        # is this: a contract that claims a method is implemented while nothing
+        # registered a handler must refuse to start rather than serve a stub.
+        from engine.methods import stubs
+
+        server = RpcServer(stdin=io.StringIO(), stdout=io.StringIO())
+        with self.assertRaises(RuntimeError):
+            stubs.register_stubs(server)
 
     def test_wrong_jsonrpc_version_is_rejected(self) -> None:
         frames = run_frames(['{"jsonrpc":"1.0","id":1,"method":"system.ping","params":{}}'])
