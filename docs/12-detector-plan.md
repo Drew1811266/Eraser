@@ -554,3 +554,19 @@ corner_static    1.00      1.00        1          1        0
 ## 执行方式
 
 Native 执行（与 M1 相同）：任务间共享协议与运行时状态，不宜拆给多个 subagent。
+
+---
+
+## 执行后记（2026-11-22）
+
+8 个任务全部执行完毕，7/7 评测通过。执行中发现并修正的与计划不符之处：
+
+- **worker 的 HF 缓存**：`trust_remote_code` 会往 `~/.cache/huggingface` 写模型自带的
+  Python，本机该目录不可写。改为 `HF_HOME=<模型目录>/hf` + 离线模式，推理不再触网。
+- **fp16 输入类型**：processor 给的是 float32，模型是 fp16，首次推理报
+  `Input type (float) and bias type (Half)`；worker 现在按模型 dtype 转换。
+- **Windows 探活**：计划沿用了 SeedVR2 的 `os.kill(pid, 0)`，但 Windows 上这不是探活，
+  是 `TerminateProcess`——第二次安装会杀掉第一次。改为 `OpenProcess/GetExitCodeProcess`。
+- **真值并非手写坐标**：用「带水印帧 − 干净帧」差分得到；前提是两次渲染完全一致，
+  所以背景必须是同一张静态图（动画 `gradients` 会让整幅画面都算成水印）。
+- **切点阈值**：深色纯色之间的切点 scene score 只有 0.06，检不出来；夹具改用亮度差大的三镜。

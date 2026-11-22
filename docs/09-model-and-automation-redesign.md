@@ -422,7 +422,7 @@ class BaseInpaintEngine:
 |---|---|---|---|
 | W1 | 安全网：`model_registry` / `remover` / `annotation.normalize` 的单测 | — | 🟡 `model_registry` 已覆盖（7 条）；`remover` 与 `normalize` 仍为零覆盖 |
 | W2 | 引擎抽象扩展（`kind` / `temporal` / `capabilities()`） | W1 | ⬜ 未开始 |
-| W3 | 分析层：检测适配器 | W1 | 🟡 接口 + 脚本检测器已交付；**真实模型（Florence-2）未接** |
+| W3 | 分析层：检测适配器 | W1 | ✅ M2（Florence-2，按需运行时；7/7 评测通过，见 docs/13） |
 | W4 | 分析层：跨帧关联 + 区间 + 运动判定 | W3 | ✅ M1（11 条测试） |
 | W5 | 水印实体与编译（`WatermarkTrack` → `Segment`，含 `keyframes`） | W4 | ✅ M1（7 条测试） |
 | W6 | 契约：`analyze.*` + `annotation.compile` + `Segment.keyframes` | W5 | ✅ M1（sidecar v2 未做，见 W9 前后决定） |
@@ -470,6 +470,6 @@ class BaseInpaintEngine:
 
 | # | 待确认 | 影响 |
 |---|---|---|
-| Q1 | 下一阶段顺序：真实检测器（M2）vs 界面（M3）vs 质量档（M4） | 决定先做什么 |
+| Q1 | 下一阶段顺序：界面（M3）vs 质量档（M4）vs 真实素材验证 | M2 已完成，决定先做什么 |
 | Q2 | 目标显卡门槛（§6.3 默认分档是否可接受） | 决定质量档普及面 |
 | Q3 | 质量档是否必须"开箱可用"，还是允许"首次使用时等待安装" | 决定 UI 与安装流程 |

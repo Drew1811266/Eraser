@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -78,6 +79,26 @@ class BatchCallTests(_Scratch):
         detector.detect_many([(0, _frame())])
         after = {p.name for p in SCRATCH.iterdir()}
         self.assertEqual(before, after, "sample frames must not accumulate on disk")
+
+
+class WorkerEnvironmentTests(_Scratch):
+    def test_the_worker_gets_a_private_offline_cache(self) -> None:
+        detector = self._detector(FAKE_WORKER)
+        env = detector.worker_env()
+        self.assertTrue(env["HF_HOME"].endswith("hf"))
+        self.assertEqual(env["HF_HUB_OFFLINE"], "1")
+        self.assertEqual(env["TRANSFORMERS_OFFLINE"], "1")
+
+    def test_the_environment_is_actually_passed_to_the_process(self) -> None:
+        detector = self._detector(FAKE_WORKER)
+        with patch(
+            "engine.pipeline.detect.florence.subprocess.run", wraps=subprocess.run
+        ) as run:
+            detector.detect_many([(0, _frame())])
+        self.assertTrue(run.called)
+        env = run.call_args.kwargs.get("env")
+        self.assertIsInstance(env, dict)
+        self.assertEqual(env["HF_HUB_OFFLINE"], "1")
 
 
 class FailureTests(_Scratch):

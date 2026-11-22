@@ -99,8 +99,15 @@ def main(argv: list[str] | None = None) -> int:
                 images=pictures,
                 return_tensors="pt",
             )
+            # The processor hands back float32 pixel values; the model may be
+            # loaded in half precision. Cast every float tensor to the model's
+            # dtype or torch refuses the matmul.
             inputs = {
-                key: value.to(device) if hasattr(value, "to") else value
+                key: (
+                    value.to(device=device, dtype=dtype)
+                    if value.is_floating_point()
+                    else value.to(device)
+                )
                 for key, value in inputs.items()
             }
             with torch.inference_mode():

@@ -9,6 +9,7 @@ detector be selected, advertised and cancelled like any other task.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -62,8 +63,6 @@ class FlorenceDetector(WatermarkDetector):
     def worker_script(self) -> Path:
         if self._worker is not None:
             return self._worker
-        import os
-
         override = os.environ.get(DEBUG_WORKER_ENV)
         if override:
             return Path(override)
@@ -106,6 +105,25 @@ class FlorenceDetector(WatermarkDetector):
 
     def detect(self, frame: np.ndarray | None, frame_index: int) -> list[Detection]:
         return self.detect_many([(int(frame_index), frame)]).get(int(frame_index), [])
+
+    def worker_env(self) -> dict[str, str]:
+        """A private, offline environment for the worker.
+
+        `trust_remote_code` makes transformers copy the model's own Python into
+        `~/.cache/huggingface`; on a locked-down Windows profile that write is
+        denied and the detector looks broken. Keeping the cache under the model
+        directory also means uninstalling the model removes all of it, and
+        `HF_HUB_OFFLINE` guarantees inference never reaches the network.
+        """
+        env = dict(os.environ)
+        cache = self.weights_dir.parent / "hf"
+        env["HF_HOME"] = str(cache)
+        env["TRANSFORMERS_CACHE"] = str(cache / "hub")
+        env["HF_HUB_OFFLINE"] = "1"
+        env["TRANSFORMERS_OFFLINE"] = "1"
+        env["HF_HUB_DISABLE_TELEMETRY"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        return env
 
     def detect_many(
         self, frames: list[tuple[int, np.ndarray]]
@@ -153,6 +171,7 @@ class FlorenceDetector(WatermarkDetector):
                     errors="replace",
                     timeout=self._timeout,
                     check=False,
+                    env=self.worker_env(),
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             except subprocess.TimeoutExpired as exc:
