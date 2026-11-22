@@ -234,3 +234,27 @@ interface TimelineProps {
 
 已知未覆盖：分析视图的**视图切换**没有单元测试（App 挂载需要 mock 整个桌面客户端），
 由 typecheck 与 Electron 实机运行覆盖；手动补框暂用默认位置，未接画框交互。
+
+---
+
+## 实机验证记录（2026-11-22）
+
+结论：**本会话无法启动 Electron 窗口**，因此 GUI 层没能在这里跑通。
+
+- `npm run build` 成功；`electron dist-electron/electron/main.js` 能执行到 `main start`
+  （应用自己的日志在 `logs/main.log`），随后 Chromium 以 `0x80000003` 退出，从未到
+  `app.whenReady()`；`--no-sandbox`、`--disable-gpu`、`--disable-crashpad` 均无变化。
+- 这是会话环境对 Chromium 启动的限制（同一台机器、同一个构建），不是应用代码的问题：
+  应用在 `main start` 之前没有任何自定义代码，之后才轮到 Electron。
+- Playwright 的 `_electron.launch` 也走不通：它把二进制当 node 跑 loader，Electron 45
+  拒绝 `--remote-debugging-port`（`bad option`）。
+
+留下两样东西给实机（或人类会话）用：
+
+1. `desktop/electron/main.ts` 的 `ERASER_DEBUG_PORT` 开发者钩子：设置后通过
+   `app.commandLine.appendSwitch` 打开 CDP 端口（命令行开关在本构建里被忽略）。
+2. `scripts/e2e-ui.mjs`：启动应用、在页面里替换两步式文件对话框、导入夹具、点「分析水印」、
+   等报告，然后断言块有真实几何、拖播放头会换帧、选中块出现微调按钮、开始处理可用，
+   并截图到 `.cache/e2e-ui/shots/`。
+
+在能启动窗口的会话里：`node scripts/e2e-ui.mjs`。

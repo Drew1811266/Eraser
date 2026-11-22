@@ -29,6 +29,13 @@ if (process.env.ERASER_USER_DATA_DIR) {
   app.setPath('userData', process.env.ERASER_USER_DATA_DIR);
 }
 
+// Developer/test hook: expose the renderer over CDP so `scripts/e2e-ui.mjs` can
+// drive the real app. The command-line switch alone is ignored by this Electron
+// build, so it has to be set through the command line object before ready.
+if (process.env.ERASER_DEBUG_PORT) {
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.ERASER_DEBUG_PORT);
+}
+
 startLog();
 
 // A crash in a child process (the renderer, or the engine's helpers) would
