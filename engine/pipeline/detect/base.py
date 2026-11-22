@@ -14,6 +14,10 @@ import numpy as np
 from engine.pipeline.analysis import Detection
 
 
+class DetectorError(RuntimeError):
+    """The detector could not produce a usable answer."""
+
+
 class WatermarkDetector(ABC):
     model_id: str = "base"
     display_name: str = "Base detector"
